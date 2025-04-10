@@ -1,0 +1,40 @@
+{
+  "assistant": {
+    "profile_name": "Assistant",
+    "profile_image_path": "ChatGPT_logo.png",
+    "background_color": "#343541",
+    "bubble_color": "#444654",
+    "text_color": "#e0e0e0",
+    "font_path": "medium.ttf",
+    "font_size": 24,
+    "block_width": 1200,
+    "vertical_padding": 20,
+    "horizontal_padding": 20,
+    "line_spacing": 8,
+    "profile_size": 80,
+    "profile_gap": 20,
+    "profile_bg": "#4e4e6e",
+    "profile_text_color": "#ffffff",
+    "feedback_padding_top": 10,
+    "feedback_padding_bottom": 16
+  },
+  "user": {
+    "profile_name": "User",
+    "profile_image_path": "user_avatar.png",
+    "background_color": "#ffffff",
+    "bubble_color": "#e4e6e8",
+    "text_color": "#000000",
+    "font_path": "medium.ttf",
+    "font_size": 24,
+    "block_width": 1200,
+    "vertical_padding": 20,
+    "horizontal_padding": 20,
+    "line_spacing": 8,
+    "profile_size": 80,
+    "profile_gap": 20,
+    "profile_bg": "#6e8e4e",
+    "profile_text_color": "#ffffff",
+    "feedback_padding_top": 10,
+    "feedback_padding_bottom": 16
+  }
+}
