@@ -5,13 +5,11 @@
       "messages": [
         {
           "text": "Hey! How's it going?",
-          "duration": 2,
-          "sfx": "message"
+          "duration": 2
         },
         {
           "text": "Can you help me with a project I have?",
-          "duration": 2,
-          "sfx": "typing"
+          "duration": 2
         }
       ]
     },
@@ -20,8 +18,7 @@
       "messages": [
         {
           "text": "Hello! I'm doing well, thank you for asking. How can I assist you today?",
-          "duration": 3,
-          "sfx": "softmessage"
+          "duration": 3
         }
       ]
     },
@@ -30,8 +27,7 @@
       "messages": [
         {
           "text": "I need help with understanding some concepts in Electrical Engineering.",
-          "duration": 3,
-          "sfx": "confusion"
+          "duration": 3
         }
       ]
     },
@@ -40,13 +36,11 @@
       "messages": [
         {
           "text": "Sure! What specific concepts are you struggling with?",
-          "duration": 2,
-          "sfx": "click"
+          "duration": 2
         },
         {
           "text": "Is it about signal processing, power systems, or circuit theory?",
-          "duration": 3,
-          "sfx": "pop"
+          "duration": 3
         }
       ]
     },
@@ -55,8 +49,7 @@
       "messages": [
         {
           "text": "Mostly signal processing. Fourier transforms confuse me.",
-          "duration": 3,
-          "sfx": "error"
+          "duration": 3
         }
       ]
     },
@@ -65,13 +58,11 @@
       "messages": [
         {
           "text": "Ah, Fourier transforms! They're crucial in EE but definitely tricky at first.",
-          "duration": 3,
-          "sfx": "zap"
+          "duration": 3
         },
         {
           "text": "Think of them as a way to break signals into frequencies — like splitting white light into a rainbow.",
-          "duration": 4,
-          "sfx": "modeugene"
+          "duration": 4
         }
       ]
     },
@@ -80,8 +71,7 @@
       "messages": [
         {
           "text": "Wow, that makes sense now. Thanks!",
-          "duration": 2,
-          "sfx": "join"
+          "duration": 2
         }
       ]
     },
@@ -90,8 +80,7 @@
       "messages": [
         {
           "text": "You’re welcome! Let me know if you want to go deeper into the math or see some visuals.",
-          "duration": 3,
-          "sfx": "hehascome"
+          "duration": 3
         }
       ]
     }

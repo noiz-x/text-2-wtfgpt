@@ -214,4 +214,4 @@ pyrightconfig.json
 
 output/
 *.png
-tts/
+audio/
