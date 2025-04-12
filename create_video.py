@@ -2,12 +2,23 @@
 
 import json
 import os
+import sys
+import logging
 from moviepy.editor import ImageClip, concatenate_videoclips
+import argparse
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 def load_conversation(conversation_file="conversation.json"):
     """Load conversation data from the JSON file."""
-    with open(conversation_file, "r") as f:
-        return json.load(f)
+    try:
+        with open(conversation_file, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        logging.error(f"Conversation file {conversation_file} not found.")
+    except json.JSONDecodeError as e:
+        logging.error(f"Error parsing {conversation_file}: {e}")
+    return None
 
 def flatten_conversation(conversation):
     """
@@ -17,12 +28,15 @@ def flatten_conversation(conversation):
     """
     flat = []
     index = 1
-    for entry in conversation["conversation"]:
-        role = entry["role"]
-        for msg_obj in entry["messages"]:
-            # Each message object has a duration.
-            flat.append((index, role, msg_obj["duration"]))
-            index += 1
+    try:
+        for entry in conversation["conversation"]:
+            role = entry.get("role", "unknown")
+            for msg_obj in entry.get("messages", []):
+                duration = msg_obj.get("duration", 1)  # default duration if missing
+                flat.append((index, role, duration))
+                index += 1
+    except KeyError as e:
+        logging.error(f"Missing key in conversation structure: {e}")
     return flat
 
 def create_video(flat_list, output_video="output/conversation_video.mp4"):
@@ -33,18 +47,30 @@ def create_video(flat_list, output_video="output/conversation_video.mp4"):
             clip = ImageClip(filename).set_duration(duration)
             clips.append(clip)
         else:
-            print(f"Warning: {filename} not found.")
+            logging.warning(f"{filename} not found.")
     if clips:
         video = concatenate_videoclips(clips, method="compose")
-        video.write_videofile(output_video, fps=24)
+        try:
+            video.write_videofile(output_video, fps=24)
+            logging.info(f"Video saved as {output_video}")
+        except Exception as e:
+            logging.error(f"Failed to write video: {e}")
     else:
-        print("No clips found to create video.")
+        logging.error("No clips found to create video.")
+        sys.exit(1)
 
 def main():
-    conversation = load_conversation()
+    parser = argparse.ArgumentParser(description="Create video from image clips.")
+    parser.add_argument("--conversation", default="conversation.json", help="Path to conversation JSON file.")
+    parser.add_argument("--output", default="output/conversation_video.mp4", help="Output video file name.")
+    args = parser.parse_args()
+    
+    conversation = load_conversation(args.conversation)
+    if not conversation:
+        sys.exit(1)
     flat_list = flatten_conversation(conversation)
     os.makedirs("output", exist_ok=True)
-    create_video(flat_list)
+    create_video(flat_list, output_video=args.output)
 
 if __name__ == "__main__":
     main()
