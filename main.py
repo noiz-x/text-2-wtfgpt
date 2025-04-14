@@ -14,9 +14,9 @@ MENU_OPTIONS = [
 
 # Mapping of menu option index to a command list (adjust as needed)
 COMMAND_MAPPING = {
-    0: ["python", "generate_image.py"],
-    1: ["python", "create_video.py"],
-    2: ["python", "sfx.py", "--cleanup"],
+    0: ["python", "scripts/generate_image.py"],
+    1: ["python", "scripts/create_video.py"],
+    2: ["python", "scripts/sfx.py", "--cleanup"],
 }
 
 def run_command(command):

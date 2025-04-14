@@ -9,7 +9,7 @@ import argparse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-def load_conversation(conversation_file="conversation.json"):
+def load_conversation(conversation_file="utils/conversation.json"):
     """Load conversation data from the JSON file."""
     try:
         with open(conversation_file, "r") as f:
@@ -39,10 +39,10 @@ def flatten_conversation(conversation):
         logging.error(f"Missing key in conversation structure: {e}")
     return flat
 
-def create_video(flat_list, output_video="output/conversation_video.mp4"):
+def create_video(flat_list, output_video="video/conversation_video.mp4"):
     clips = []
     for index, role, duration in flat_list:
-        filename = f"output/message_{index}_{role}.png"
+        filename = f"video/message_{index}_{role}.png"
         if os.path.exists(filename):
             clip = ImageClip(filename).set_duration(duration)
             clips.append(clip)
@@ -61,8 +61,8 @@ def create_video(flat_list, output_video="output/conversation_video.mp4"):
 
 def main():
     parser = argparse.ArgumentParser(description="Create video from image clips.")
-    parser.add_argument("--conversation", default="conversation.json", help="Path to conversation JSON file.")
-    parser.add_argument("--output", default="output/conversation_video.mp4", help="Output video file name.")
+    parser.add_argument("--conversation", default="utils/conversation.json", help="Path to conversation JSON file.")
+    parser.add_argument("--output", default="video/conversation_video.mp4", help="Output video file name.")
     args = parser.parse_args()
     
     conversation = load_conversation(args.conversation)

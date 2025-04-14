@@ -1,4 +1,4 @@
-# sfx.py
+# scripts/sfx.py
 
 import json
 import os
@@ -15,94 +15,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 # Directories and file paths
 AUDIO_DIR = "audio"
-OUTPUT_DIR = "output"
-OUTPUT_VIDEO = "final_video.mp4"
-CONVERSATION_FILE = "conversation.json"
-# main.py
-
-import curses
-import subprocess
-import sys
-import time
-
-MENU_OPTIONS = [
-    "1. Generate Portrait Images from Conversation",
-    "2. Create Video from Generated Images (Portrait)",
-    "3. Create Final Video with Audio (Portrait)",
-    "4. Quit"
-]
-
-# Mapping of menu option index to a command list.
-# The generate_image script now receives a "--config config.json" flag.
-# It is assumed that for portrait mode you have a config.json file 
-# with parameters (like block_width, vertical padding, etc.) optimized for 9:16 output.
-COMMAND_MAPPING = {
-    0: ["python", "generate_image.py", "--config", "config.json"],
-    1: ["python", "create_video.py"],
-    2: ["python", "sfx.py", "--cleanup"],
-}
-
-def run_command(command):
-    """Suspend curses, run the command and wait for completion."""
-    curses.endwin()  # Temporarily end curses mode so output can be seen.
-    try:
-        subprocess.run(command, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Command {command} failed with error: {e}")
-    input("\nPress Enter to return to the main menu...")
-
-def draw_menu(stdscr, selected_index):
-    stdscr.clear()
-    height, width = stdscr.getmaxyx()
-    title = "Portrait Conversation Video Creator"
-    stdscr.addstr(1, (width - len(title)) // 2, title, curses.A_BOLD | curses.A_UNDERLINE)
-    
-    # Draw each menu option centered
-    for idx, menu_item in enumerate(MENU_OPTIONS):
-        x = (width - len(menu_item)) // 2
-        y = 3 + idx
-        if idx == selected_index:
-            stdscr.attron(curses.A_REVERSE)
-            stdscr.addstr(y, x, menu_item)
-            stdscr.attroff(curses.A_REVERSE)
-        else:
-            stdscr.addstr(y, x, menu_item)
-    stdscr.refresh()
-
-def curses_menu(stdscr):
-    curses.curs_set(0)  # Hide the cursor
-    selected_index = 0
-
-    while True:
-        draw_menu(stdscr, selected_index)
-        key = stdscr.getch()
-        
-        # Navigate the menu using arrow keys or j/k
-        if key in [curses.KEY_UP, ord('k')]:
-            selected_index = (selected_index - 1) % len(MENU_OPTIONS)
-        elif key in [curses.KEY_DOWN, ord('j')]:
-            selected_index = (selected_index + 1) % len(MENU_OPTIONS)
-        elif key in [curses.KEY_ENTER, 10, 13]:
-            # If "Quit" is selected, exit.
-            if selected_index == len(MENU_OPTIONS) - 1:
-                break
-            else:
-                command = COMMAND_MAPPING.get(selected_index)
-                if command:
-                    run_command(command)
-        elif key in [ord('q'), ord('Q')]:
-            break
-
-def main():
-    try:
-        curses.wrapper(curses_menu)
-    except Exception as e:
-        curses.endwin()
-        print(f"Error in curses application: {e}")
-        sys.exit(1)
-
-if __name__ == "__main__":
-    main()
+VIDEO_DIR = "video"
+OUTPUT_VIDEO = "output/final_video.mp4"
+CONVERSATION_FILE = "utils/conversation.json"
 
 # Initialize Kokoro TTS pipeline for American English ('a')
 pipeline = KPipeline(lang_code='a')
@@ -168,13 +83,13 @@ def create_sfx_video(flat_list, output_video=OUTPUT_VIDEO):
     """
     Create the final video by combining image clips (generated earlier) 
     with the corresponding TTS audio files.
-    Expects image files named "output/message_{index}_{role}.png".
+    Expects image files named "video/message_{index}_{role}.png".
     """
     clips = []
     audio_clips = []
     
     for (index, role, duration, audio_path) in flat_list:
-        image_file = f"output/message_{index}_{role}.png"
+        image_file = f"video/message_{index}_{role}.png"
         if not os.path.exists(image_file):
             logging.warning(f"Image file {image_file} not found. Skipping message {index}.")
             continue
@@ -230,9 +145,9 @@ def main():
             if os.path.exists(AUDIO_DIR):
                 shutil.rmtree(AUDIO_DIR)
                 logging.info("Audio folder deleted.")
-            if os.path.exists(OUTPUT_DIR):
-                shutil.rmtree(OUTPUT_DIR)
-                logging.info("Output folder deleted.")
+            if os.path.exists(VIDEO_DIR):
+                shutil.rmtree(VIDEO_DIR)
+                logging.info("Video folder deleted.")
         except Exception as e:
             logging.error("Error deleting directories: " + str(e))
 

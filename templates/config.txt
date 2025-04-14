@@ -1,0 +1,35 @@
+{
+  "base": {
+    "background_color": "#343541",
+    "bubble_color": "#444654",
+    "text_color": "#e0e0e0",
+    "font_path": "fonts/medium.ttf",
+    "font_size": 24,
+    "block_width": 1200,
+    "vertical_padding": 20,
+    "horizontal_padding": 20,
+    "line_spacing": 8,
+    "profile_size": 80,
+    "profile_gap": 20,
+    "profile_bg": "#4e4e6e",
+    "profile_text_color": "#ffffff",
+    "feedback_padding_top": 10,
+    "feedback_padding_bottom": 16
+  },
+  "user": {
+    "profile_image_path": null,
+    "profile_name": "User"
+  },
+  "user1": {
+    "profile_image_path": "profiles/ChatGPT_logo.png",
+    "profile_name": "ChatGPT"
+  },
+  "user2": {
+    "profile_image_path": "profiles/cryptobro.jpeg",
+    "profile_name": "Crypto Bro"
+  },
+  "user3": {
+    "profile_image_path": "profiles/x.jpg",
+    "profile_name": "Time Traveler"
+  }
+}

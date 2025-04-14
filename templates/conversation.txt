@@ -1,0 +1,17 @@
+{
+  "conversation": [
+    {
+      "role": string,
+      "messages": [
+        {
+          "text": string,
+          "duration": int
+        },
+        {
+          "text": string,
+          "duration": int
+        }
+      ]
+    }
+  ]
+}

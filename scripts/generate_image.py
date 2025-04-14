@@ -1,18 +1,17 @@
-# generate_image.py
+# scripts/generate_image.py
 
 import json
 import os
 import logging
 import textwrap
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFont
 from pilmoji import Pilmoji
 from pilmoji.source import GoogleEmojiSource
 import argparse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-def load_conversation(conversation_file="conversation.json"):
-    """Load conversation data from the JSON file."""
+def load_conversation(conversation_file="utils/conversation.json"):
     try:
         with open(conversation_file, "r") as f:
             return json.load(f)
@@ -22,8 +21,7 @@ def load_conversation(conversation_file="conversation.json"):
         logging.error(f"Error parsing {conversation_file}: {e}")
     return None
 
-def load_config(config_file="config.json"):
-    """Load configuration data from the JSON file."""
+def load_config(config_file="utils/config.json"):
     try:
         with open(config_file, "r") as f:
             return json.load(f)
@@ -34,7 +32,6 @@ def load_config(config_file="config.json"):
     return None
 
 def generate_text_profile(name, bg_color, text_color, size, font_path):
-    """Generate a circular profile image with the speaker's initials."""
     profile_img = Image.new("RGBA", (size, size))
     draw = ImageDraw.Draw(profile_img)
     draw.ellipse((0, 0, size, size), fill=bg_color)
@@ -52,9 +49,7 @@ def generate_text_profile(name, bg_color, text_color, size, font_path):
     return profile_img
 
 def generate_chatgpt_message_block(accumulated_messages, role, message_index, config):
-    """Generate an image for the accumulated messages from a specific speaker."""
     message_text = "\n".join(accumulated_messages)
-    # Retrieve configuration settings with defaults
     background_color = config.get("background_color", "#000000")
     bubble_color = config.get("bubble_color", "#333333")
     text_color = config.get("text_color", "#FFFFFF")
@@ -65,7 +60,7 @@ def generate_chatgpt_message_block(accumulated_messages, role, message_index, co
     horizontal_padding = config.get("horizontal_padding", 10)
     line_spacing = config.get("line_spacing", 4)
     profile_image_path = config.get("profile_image_path", None)
-    profile_name = config.get("profile_name", "Chat")
+    profile_name = config.get("profile_name", role.title())  # fallback to role name
     profile_size = config.get("profile_size", 50)
     profile_gap = config.get("profile_gap", 10)
     profile_bg = config.get("profile_bg", "#555555")
@@ -146,8 +141,8 @@ def generate_chatgpt_message_block(accumulated_messages, role, message_index, co
     feedback_y = bubble_y1 + feedback_padding_top
     draw.text((feedback_x, feedback_y), feedback_text, font=feedback_font, fill="#aaaaaa")
 
-    os.makedirs("output", exist_ok=True)
-    image_filename = f"output/message_{message_index}_{role}.png"
+    os.makedirs("video", exist_ok=True)
+    image_filename = f"video/message_{message_index}_{role}.png"
     try:
         img.save(image_filename)
         logging.info(f"Saved image for {role} message block {message_index}: {image_filename}")
@@ -157,8 +152,8 @@ def generate_chatgpt_message_block(accumulated_messages, role, message_index, co
 
 def main():
     parser = argparse.ArgumentParser(description="Generate images for conversation messages.")
-    parser.add_argument("--conversation", default="conversation.json", help="Path to conversation JSON file.")
-    parser.add_argument("--config", default="config.json", help="Path to configuration JSON file.")
+    parser.add_argument("--conversation", default="utils/conversation.json", help="Path to conversation JSON file.")
+    parser.add_argument("--config", default="utils/config.json", help="Path to configuration JSON file.")
     args = parser.parse_args()
 
     conversation = load_conversation(args.conversation)
@@ -171,10 +166,10 @@ def main():
     message_index = 1
     previous_role = None
     accumulated_messages = []
-    
+
     for entry in conversation.get("conversation", []):
         role = entry.get("role", "unknown")
-        speaker_config = config.get("user") if role == "user" else config.get("assistant")
+        speaker_config = config.get(role) or config.get("default")  # 👈 Dynamic role support
         if speaker_config is None:
             logging.error(f"Missing configuration for role: {role}")
             continue
