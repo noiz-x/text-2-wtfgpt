@@ -1,14 +1,14 @@
 {
   "conversation": [
     {
-      "role": string,
+      "role": "string",
       "messages": [
         {
-          "text": string,
+          "text": "string [SFX:filename.wav, offset, volume]",
           "duration": int
         },
         {
-          "text": string,
+          "text": "string",
           "duration": int
         }
       ]

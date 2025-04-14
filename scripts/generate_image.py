@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import logging
 import textwrap
 from PIL import Image, ImageDraw, ImageFont
@@ -32,10 +33,13 @@ def load_config(config_file="utils/config.json"):
     return None
 
 def generate_text_profile(name, bg_color, text_color, size, font_path):
+    # Create profile image with initials only if name is given
+    if not name:
+        return None
     profile_img = Image.new("RGBA", (size, size))
     draw = ImageDraw.Draw(profile_img)
     draw.ellipse((0, 0, size, size), fill=bg_color)
-    initials = name[:2].upper() if name else "AI"
+    initials = name[:2].upper()
     try:
         font = ImageFont.truetype(font_path, size // 2)
     except IOError:
@@ -49,7 +53,11 @@ def generate_text_profile(name, bg_color, text_color, size, font_path):
     return profile_img
 
 def generate_chatgpt_message_block(accumulated_messages, role, message_index, config):
+    # Join accumulated messages into one text block
     message_text = "\n".join(accumulated_messages)
+    # Remove any SFX placeholders from the text before rendering
+    cleaned_message_text = re.sub(r'\[SFX:[^\]]+\]', '', message_text)
+    
     background_color = config.get("background_color", "#000000")
     bubble_color = config.get("bubble_color", "#333333")
     text_color = config.get("text_color", "#FFFFFF")
@@ -59,8 +67,10 @@ def generate_chatgpt_message_block(accumulated_messages, role, message_index, co
     vertical_padding = config.get("vertical_padding", 10)
     horizontal_padding = config.get("horizontal_padding", 10)
     line_spacing = config.get("line_spacing", 4)
+    
+    # Retrieve optional profile settings. A blank or missing profile name means no profile is shown.
     profile_image_path = config.get("profile_image_path", None)
-    profile_name = config.get("profile_name", role.title())  # fallback to role name
+    profile_name = config.get("profile_name", "").strip()  # Do not auto-fill with a placeholder
     profile_size = config.get("profile_size", 50)
     profile_gap = config.get("profile_gap", 10)
     profile_bg = config.get("profile_bg", "#555555")
@@ -74,10 +84,11 @@ def generate_chatgpt_message_block(accumulated_messages, role, message_index, co
     except IOError:
         font = ImageFont.load_default()
         name_font = ImageFont.load_default()
-
-    profile_x = horizontal_padding
-    has_profile = profile_image_path or profile_name
-    text_start_x = profile_x + profile_size + profile_gap if has_profile else horizontal_padding
+    
+    # Determine whether to display the profile.
+    has_profile = bool(profile_image_path) or bool(profile_name)
+    profile_x = horizontal_padding if has_profile else 0
+    text_start_x = profile_x + (profile_size + profile_gap if has_profile else horizontal_padding)
 
     sample_text = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     sample_bbox = font.getbbox(sample_text)
@@ -86,7 +97,7 @@ def generate_chatgpt_message_block(accumulated_messages, role, message_index, co
     wrap_width = max(1, int(max_text_width // avg_char_width))
 
     wrapper = textwrap.TextWrapper(width=wrap_width)
-    wrapped_text = wrapper.fill(message_text)
+    wrapped_text = wrapper.fill(cleaned_message_text)
     dummy_img = Image.new("RGB", (block_width, 100), background_color)
     dummy_draw = ImageDraw.Draw(dummy_img)
     text_bbox = dummy_draw.multiline_textbbox((0, 0), wrapped_text, font=font, spacing=line_spacing)
@@ -98,11 +109,12 @@ def generate_chatgpt_message_block(accumulated_messages, role, message_index, co
     feedback_height = font.getbbox("Ag")[3]
 
     content_height = name_height + bubble_height + feedback_padding_top + feedback_height + feedback_padding_bottom
-    total_height = max(profile_size + 2 * vertical_padding, content_height + vertical_padding)
+    total_height = max((profile_size + 2 * vertical_padding) if has_profile else 0, content_height + vertical_padding)
 
     img = Image.new("RGB", (block_width, total_height), background_color)
     draw = ImageDraw.Draw(img)
 
+    # Display the profile if available
     if has_profile:
         if profile_image_path and os.path.exists(profile_image_path):
             try:
@@ -112,19 +124,24 @@ def generate_chatgpt_message_block(accumulated_messages, role, message_index, co
                 profile_img = generate_text_profile(profile_name, profile_bg, profile_text_color, profile_size, font_path)
         else:
             profile_img = generate_text_profile(profile_name, profile_bg, profile_text_color, profile_size, font_path)
-        profile_img = profile_img.resize((profile_size, profile_size))
-        mask = Image.new("L", (profile_size, profile_size), 0)
-        ImageDraw.Draw(mask).ellipse((0, 0, profile_size, profile_size), fill=255)
-        profile_img.putalpha(mask)
-        profile_y = (total_height - profile_size) // 2
-        img.paste(profile_img, (profile_x, profile_y), profile_img)
+        if profile_img:
+            profile_img = profile_img.resize((profile_size, profile_size))
+            mask = Image.new("L", (profile_size, profile_size), 0)
+            ImageDraw.Draw(mask).ellipse((0, 0, profile_size, profile_size), fill=255)
+            profile_img.putalpha(mask)
+            profile_y = (total_height - profile_size) // 2
+            img.paste(profile_img, (profile_x, profile_y), profile_img)
 
-    name_x = text_start_x
-    name_y = vertical_padding
-    draw.text((name_x, name_y), profile_name, font=name_font, fill="#ffffff")
+    # Draw speaker name if profile info is provided
+    if has_profile and profile_name:
+        name_x = text_start_x
+        name_y = vertical_padding
+        draw.text((name_x, name_y), profile_name, font=name_font, fill="#ffffff")
+    else:
+        name_y = vertical_padding
 
     bubble_x0 = text_start_x
-    bubble_y0 = name_y + name_height + 6
+    bubble_y0 = name_y + (name_height + 6 if has_profile and profile_name else 0)
     bubble_x1 = bubble_x0 + text_width + 2 * horizontal_padding
     bubble_y1 = bubble_y0 + bubble_height
     draw.rounded_rectangle([bubble_x0, bubble_y0, bubble_x1, bubble_y1], radius=20, fill=bubble_color)
@@ -135,14 +152,13 @@ def generate_chatgpt_message_block(accumulated_messages, role, message_index, co
         pilmoji.text((text_draw_x, text_draw_y), wrapped_text, font=font, fill=text_color, spacing=line_spacing)
 
     feedback_text = "👍   👎"
-    feedback_font = font
-    feedback_width = draw.textlength(feedback_text, font=feedback_font)
+    feedback_width = draw.textlength(feedback_text, font=font)
     feedback_x = bubble_x1 - feedback_width - horizontal_padding
     feedback_y = bubble_y1 + feedback_padding_top
-    draw.text((feedback_x, feedback_y), feedback_text, font=feedback_font, fill="#aaaaaa")
+    draw.text((feedback_x, feedback_y), feedback_text, font=font, fill="#aaaaaa")
 
     os.makedirs("video", exist_ok=True)
-    image_filename = f"video/message_{message_index}_{role}.png"
+    image_filename = os.path.join("video", f"message_{message_index}_{role}.png")
     try:
         img.save(image_filename)
         logging.info(f"Saved image for {role} message block {message_index}: {image_filename}")
@@ -169,7 +185,7 @@ def main():
 
     for entry in conversation.get("conversation", []):
         role = entry.get("role", "unknown")
-        speaker_config = config.get(role) or config.get("default")  # 👈 Dynamic role support
+        speaker_config = config.get(role) or config.get("default")
         if speaker_config is None:
             logging.error(f"Missing configuration for role: {role}")
             continue
