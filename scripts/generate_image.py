@@ -226,7 +226,7 @@ def generate_text_profile(name, bg_color, text_color, size, font_path):
         font = ImageFont.load_default()
     bbox = draw.textbbox((0, 0), initials, font=font)
     text_width = bbox[2] - bbox[0]
-    message_text = "\n ".join(msg.strip() for msg in accumulated_messages)
+    text_height = bbox[3] - bbox[1]
     x = (size - text_width) // 2
     y = (size - text_height) // 2
     draw.text((x, y), initials, fill=text_color, font=font)
