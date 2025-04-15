@@ -25,7 +25,6 @@ def parse_markdown(text):
     Returns a list of tokens. Each token is a dict:
        { "text": <str>, "bold": <bool>, "italic": <bool>, "strikethrough": <bool> }
     """
-    # Triple-asterisk tokens are handled first
     pattern = re.compile(r'(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*|~~.*?~~)')
     tokens = []
     last_idx = 0
@@ -97,23 +96,18 @@ def select_font(token, fonts):
 def wrap_tokens(tokens, draw, fonts, max_width):
     """
     Wrap the list of tokens into multiple lines so that each line's total width does not exceed max_width.
-    This is a simple word-wrapping routine.
     Returns a list of lines; each line is a list of tokens.
-    
-    Modified to replace any newline characters in token text with spaces
-    so that textlength measurements don't error out.
+    Modified to replace newline characters.
     """
     lines = []
     current_line = []
     current_width = 0
 
     for token in tokens:
-        # Split the token text by spaces.
+        # Split token text by spaces.
         words = token["text"].split(" ")
         for i, word in enumerate(words):
-            # Append a space if not the last word.
-            word_text = word + (" " if i < len(words) - 1 else "")
-            # Replace any newline characters.
+            word_text = word + (" " if i < len(words)-1 else "")
             word_text = word_text.replace("\n", " ")
             ttoken = {
                 "text": word_text,
@@ -141,7 +135,6 @@ def draw_markdown_lines(draw, pilmoji, lines, start_x, start_y, line_spacing, fi
     Returns the total height occupied.
     """
     y = start_y
-    line_height = 0
     for line in lines:
         x = start_x
         max_line_height = 0
@@ -157,7 +150,6 @@ def draw_markdown_lines(draw, pilmoji, lines, start_x, start_y, line_spacing, fi
             x += token_width
             max_line_height = max(max_line_height, token_height)
         y += max_line_height + line_spacing
-        line_height = max_line_height
     total_height = y - start_y
     return total_height
 
@@ -191,7 +183,7 @@ def generate_text_profile(name, bg_color, text_color, size, font_path):
     draw.ellipse((0, 0, size, size), fill=bg_color)
     initials = name[:2].upper()
     try:
-        font = ImageFont.truetype(font_path, size // 2)
+        font = ImageFont.truetype(font_path, size//2)
     except IOError:
         font = ImageFont.load_default()
     bbox = draw.textbbox((0, 0), initials, font=font)
@@ -203,28 +195,34 @@ def generate_text_profile(name, bg_color, text_color, size, font_path):
     return profile_img
 
 def generate_chatgpt_message_block(accumulated_messages, role, message_index, config):
+    # Remove any SFX markers (they are processed elsewhere)
     message_text = "\n".join(accumulated_messages)
     cleaned_message_text = re.sub(r'\[SFX:[^\]]+\]', '', message_text)
     
-    background_color = config.get("background_color", "#000000")
-    bubble_color = config.get("bubble_color", "#333333")
-    text_color = config.get("text_color", "#FFFFFF")
-    font_path = config.get("font_path", "arial.ttf")
-    font_size = config.get("font_size", 20)
-    block_width = config.get("block_width", 600)
-    vertical_padding = config.get("vertical_padding", 10)
-    horizontal_padding = config.get("horizontal_padding", 10)
-    line_spacing = config.get("line_spacing", 4)
+    background_color = config.get("background_color")
+    bubble_color = config.get("bubble_color")
+    text_color = config.get("text_color")
+    font_path = config.get("font_path")
+    font_size = config.get("font_size")
+    block_width = config.get("block_width")
+    vertical_padding = config.get("vertical_padding")
+    horizontal_padding = config.get("horizontal_padding")
+    line_spacing = config.get("line_spacing")
     
-    profile_image_path = config.get("profile_image_path", None)
+    profile_image_path = config.get("profile_image_path")
     profile_name = config.get("profile_name", "").strip()
-    profile_size = config.get("profile_size", 50)
-    profile_gap = config.get("profile_gap", 10)
-    profile_bg = config.get("profile_bg", "#555555")
-    profile_text_color = config.get("profile_text_color", "#FFFFFF")
-    feedback_padding_top = config.get("feedback_padding_top", 5)
-    feedback_padding_bottom = config.get("feedback_padding_bottom", 5)
-
+    profile_size = config.get("profile_size")
+    profile_gap = config.get("profile_gap")
+    profile_bg = config.get("profile_bg")
+    profile_text_color = config.get("profile_text_color")
+    
+    # Optional after bubble text
+    after_bubble_text = config.get("after_bubble_text", "").strip()
+    after_bubble_font_path = config.get("after_bubble_font_path", font_path)
+    after_bubble_font_size = config.get("after_bubble_font_size", font_size)
+    after_bubble_text_color = config.get("after_bubble_text_color", text_color)
+    after_bubble_padding_top = config.get("after_bubble_padding_top", 10)
+    
     fonts = {}
     try:
         fonts["normal"] = ImageFont.truetype(font_path, font_size)
@@ -257,10 +255,21 @@ def generate_chatgpt_message_block(accumulated_messages, role, message_index, co
         name_font = ImageFont.load_default()
     name_height = name_font.getbbox("Ag")[3] + 4 if (has_profile and profile_name) else 0
     bubble_height = total_text_height + 2 * vertical_padding
-    feedback_height = fonts["normal"].getbbox("Ag")[3]
 
-    content_height = name_height + bubble_height + feedback_padding_top + feedback_height + feedback_padding_bottom
+    # If after bubble text exists, measure its height.
+    if after_bubble_text:
+        try:
+            after_font = ImageFont.truetype(after_bubble_font_path, after_bubble_font_size)
+        except IOError:
+            after_font = ImageFont.load_default()
+        after_bbox = dummy_draw.textbbox((0,0), after_bubble_text, font=after_font)
+        after_text_height = after_bbox[3] - after_bbox[1]
+    else:
+        after_text_height = 0
+
+    content_height = name_height + bubble_height
     total_height = max((profile_size + 2 * vertical_padding) if has_profile else 0, content_height + vertical_padding)
+    total_height += after_text_height + after_bubble_padding_top  # add extra height for after bubble text if present
 
     img = Image.new("RGB", (block_width, total_height), background_color)
     draw = ImageDraw.Draw(img)
@@ -279,7 +288,7 @@ def generate_chatgpt_message_block(accumulated_messages, role, message_index, co
             mask = Image.new("L", (profile_size, profile_size), 0)
             ImageDraw.Draw(mask).ellipse((0, 0, profile_size, profile_size), fill=255)
             profile_img.putalpha(mask)
-            profile_y = (total_height - profile_size) // 2
+            profile_y = (total_height - profile_size - (after_text_height + after_bubble_padding_top) if after_bubble_text else total_height - profile_size) // 2
             img.paste(profile_img, (profile_x, profile_y), profile_img)
 
     if has_profile and profile_name:
@@ -307,12 +316,18 @@ def generate_chatgpt_message_block(accumulated_messages, role, message_index, co
         text_draw_y = bubble_y0 + vertical_padding
         draw_markdown_lines(draw, pilmoji, lines_tokens, text_draw_x, text_draw_y, line_spacing, text_color, fonts)
 
-    feedback_text = "👍   👎"
-    feedback_width = draw.textlength(feedback_text, font=fonts["normal"])
-    feedback_x = bubble_x1 - feedback_width - horizontal_padding
-    feedback_y = bubble_y1 + feedback_padding_top
-    draw.text((feedback_x, feedback_y), feedback_text, font=fonts["normal"], fill="#aaaaaa")
-    
+    # Draw after bubble text if provided.
+    if after_bubble_text:
+        try:
+            after_font = ImageFont.truetype(after_bubble_font_path, after_bubble_font_size)
+        except IOError:
+            after_font = ImageFont.load_default()
+        after_bbox = draw.textbbox((0,0), after_bubble_text, font=after_font)
+        after_text_width = after_bbox[2] - after_bbox[0]
+        after_text_x = (block_width - after_text_width) // 2  # centered horizontally
+        after_text_y = bubble_y1 + after_bubble_padding_top
+        draw.text((after_text_x, after_text_y), after_bubble_text, font=after_font, fill=after_bubble_text_color)
+
     os.makedirs("video", exist_ok=True)
     image_filename = os.path.join("video", f"message_{message_index}_{role}.png")
     try:
@@ -321,6 +336,17 @@ def generate_chatgpt_message_block(accumulated_messages, role, message_index, co
     except Exception as e:
         logging.error(f"Failed to save image {image_filename}: {e}")
     return img
+
+def merge_config(role, config):
+    """
+    Merge the default configuration with role-specific overrides.
+    Role-specific keys overwrite those in the default.
+    """
+    default_cfg = config.get("default", {})
+    role_cfg = config.get(role, {})
+    merged = default_cfg.copy()
+    merged.update(role_cfg)
+    return merged
 
 def main():
     parser = argparse.ArgumentParser(description="Generate images for conversation messages.")
@@ -341,8 +367,8 @@ def main():
 
     for entry in conversation.get("conversation", []):
         role = entry.get("role", "unknown")
-        speaker_config = config.get(role) or config.get("default")
-        if speaker_config is None:
+        speaker_config = merge_config(role, config)
+        if not speaker_config:
             logging.error(f"Missing configuration for role: {role}")
             continue
         for msg_obj in entry.get("messages", []):
