@@ -1,4 +1,4 @@
-# create_video.py
+# scripts/create_video.py
 
 import json
 import os

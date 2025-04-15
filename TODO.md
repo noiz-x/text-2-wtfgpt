@@ -3,7 +3,7 @@
 - dealing with bold text, italics and strikethroughs ✅
 - proper linting so, I can add actual SFX at some places for instances like cough and the likes ✅
 - improve error handling for missing or invalid configuration files
-- add support for nested markdown formatting (e.g., bold within italics)
+- add support for nested markdown formatting (e.g., bold within italics) ✅
 - optimize video rendering for faster processing
 - implement unit tests for key functionalities
 - enhance documentation with examples and troubleshooting tips
