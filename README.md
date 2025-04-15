@@ -7,6 +7,27 @@ Text-to-WTFGPT is a Python-based project that generates conversational videos wi
 - **Create Videos**: Combines generated images into a video.
 - **Add Audio**: Integrates text-to-speech audio for each message.
 - **Dynamic Roles**: Supports multiple user roles with customizable profiles.
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+To verify your setup:
+
+1. Check Python version:
+  ```bash
+  python --version
+  ```
+2. Check pip version:
+  ```bash
+  pip --version
+  ```
+3. Verify ffmpeg installation:
+  ```bash
+  ffmpeg -version
+  ```
+- Python 3.12
+- pip (Python package manager)
+- ffmpeg (for video processing)
 
 ## Installation
 1. Clone the repository:
@@ -18,6 +39,10 @@ Text-to-WTFGPT is a Python-based project that generates conversational videos wi
   ```bash
   pip install -r requirements.txt
   ```
+3. Ensure `ffmpeg` is installed and accessible from the command line:
+  ```bash
+  ffmpeg -version
+  ```
 
 ## Usage
 Run the main script to access the interactive menu:
@@ -25,12 +50,11 @@ Run the main script to access the interactive menu:
 python main.py
 ```
 
-### Menu Options
-1. **Generate Images**: Creates images for each conversation message.
-2. **Create Video**: Combines images into a video.
-3. **Final Video with Audio**: Adds text-to-speech audio to the video.
+1. **Generate Images**: Processes the conversation text and generates styled images for each message. The images are created based on the configuration settings, including fonts, colors, and layout.
 
-## Configuration
+2. **Create Video**: Combines the generated images into a seamless video, ensuring the conversation flows naturally with each image displayed for the specified duration.
+
+3. **Final Video with Audio**: Adds text-to-speech audio to the video, synchronizing the audio with the corresponding messages and integrating sound effects (SFX) where specified.
 - **Conversation**: Edit `utils/conversation.json` to define the conversation flow.
 - **Styling**: Customize `templates/config.txt` for colors, fonts, and layout.
 
@@ -41,8 +65,8 @@ We welcome contributions! Please read the [Contributing Guidelines](CONTRIBUTING
 This project is licensed under the [MIT License](LICENSE).
 
 ## Acknowledgments
-- [Pillow](https://python-pillow.org/)
+- [Pillow](https://pillow.readthedocs.io/)
 - [MoviePy](https://zulko.github.io/moviepy/)
-- [Kokoro TTS](https://kokoro.ai/)
+- [Kokoro TTS](https://github.com/hexgrad/kokoro)
 
 Enjoy creating your WTF-worthy conversations!  
