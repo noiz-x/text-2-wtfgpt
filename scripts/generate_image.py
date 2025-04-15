@@ -93,6 +93,35 @@ def select_font(token, fonts):
     else:
         return fonts["normal"]
 
+# --- Custom Text Length Helper ---
+def custom_textlength(draw, text, font):
+    """
+    Measures text width character by character.
+    For emoji characters (using common Unicode ranges), the font's mask is used to measure width,
+    and an adjustment factor (1.5 here) is applied.
+    """
+    total = 0
+    emoji_pattern = re.compile(
+        "[" 
+        "\U0001F300-\U0001F5FF"
+        "\U0001F600-\U0001F64F"
+        "\U0001F680-\U0001F6FF"
+        "\U0001F1E0-\U0001F1FF"
+        "]+", 
+        flags=re.UNICODE
+    )
+    for char in text:
+        if emoji_pattern.match(char):
+            # Use getmask to measure emoji and apply a larger factor.
+            char_width = font.getmask(char).size[0]
+            total += char_width * 1.5  # increased adjustment factor; tweak as needed
+        else:
+            # Use draw.textbbox to measure the width of non-emoji characters.
+            bbox = draw.textbbox((0, 0), char, font=font)
+            char_width = (bbox[2] - bbox[0]) if bbox else 0
+            total += char_width
+    return total
+
 def wrap_tokens(tokens, draw, fonts, max_width):
     """
     Wrap the list of tokens into multiple lines so that each line's total width does not exceed max_width.
@@ -116,7 +145,7 @@ def wrap_tokens(tokens, draw, fonts, max_width):
                 "strikethrough": token["strikethrough"]
             }
             font_used = select_font(ttoken, fonts)
-            word_width = draw.textlength(ttoken["text"], font=font_used)
+            word_width = custom_textlength(draw, ttoken["text"], font_used)
             if current_line and current_width + word_width > max_width:
                 lines.append(current_line)
                 current_line = []
@@ -196,7 +225,8 @@ def generate_text_profile(name, bg_color, text_color, size, font_path):
 
 def generate_chatgpt_message_block(accumulated_messages, role, message_index, config):
     # Remove any SFX markers (they are processed elsewhere)
-    message_text = "\n".join(accumulated_messages)
+    # Note: Joining messages with "\n " ensures that there is a space between messages.
+    message_text = "\n ".join(accumulated_messages)
     cleaned_message_text = re.sub(r'\[SFX:[^\]]+\]', '', message_text)
     
     background_color = config.get("background_color")
@@ -304,7 +334,7 @@ def generate_chatgpt_message_block(accumulated_messages, role, message_index, co
         line_width = 0
         for token in line:
             token_font = select_font(token, fonts)
-            line_width += dummy_draw.textlength(token["text"], font=token_font)
+            line_width += custom_textlength(dummy_draw, token["text"], token_font)
         max_line_width = max(max_line_width, line_width)
     bubble_x0 = text_start_x
     bubble_x1 = bubble_x0 + max_line_width + 2 * horizontal_padding
