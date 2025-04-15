@@ -235,7 +235,7 @@ def generate_text_profile(name, bg_color, text_color, size, font_path):
 def generate_chatgpt_message_block(accumulated_messages, role, message_index, config):
     # Remove any SFX markers (they are processed elsewhere)
     # Note: Joining messages with "\n " ensures that there is a space between messages.
-    message_text = "\n ".join(accumulated_messages)
+    message_text = "\n ".join(msg.strip() for msg in accumulated_messages)
     cleaned_message_text = re.sub(r'\[SFX:[^\]]+\]', '', message_text)
     
     background_color = config.get("background_color")
