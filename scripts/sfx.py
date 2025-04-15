@@ -17,7 +17,7 @@ from moviepy.editor import (
 from kokoro import KPipeline
 import soundfile as sf
 import argparse
-import emoji  # Make sure to install this: pip install emoji
+import emoji  # Ensure installed: pip install emoji
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -29,7 +29,7 @@ VIDEO_DIR = "video"
 OUTPUT_VIDEO = "output/final_video.mp4"
 CONVERSATION_FILE = "utils/conversation.json"
 
-# Ensure necessary directories exist
+# Ensure output directories exist
 os.makedirs(AUDIO_DIR, exist_ok=True)
 os.makedirs("output", exist_ok=True)
 
@@ -48,29 +48,44 @@ def remove_emojis(text):
     """Remove all emojis from the text."""
     return emoji.replace_emoji(text, replace='')
 
+def remove_markdown(text):
+    """
+    Remove simple markdown formatting markers used for bold, italic, and strikethrough.
+    This removes occurrences of **, ***, *, and ~~.
+    """
+    return re.sub(r'(\*\*\*|\*\*|\*|~~)', '', text)
+
 def process_text_and_sfx(text):
     """
-    Removes SFX markers and emojis from text, and calculates proportional timing for SFX events.
-    
-    Returns:
-      - cleaned_text: text with all SFX markers and emojis removed.
-      - sfx_events: list of dicts for each SFX with keys:
-            file, proportion, additional_offset, volume.
-      
-      The proportion is computed from the emoji-free version of the text.
+    Process the input text to extract SFX event positions and return the cleaned text.
+    The procedure is:
+       1. Capture SFX markers (and later remove them).
+       2. Remove the SFX markers from the text.
+       3. Remove markdown formatting markers (so the TTS doesn't say them).
+       4. Remove emojis.
+       5. Compute SFX timings based on the emoji‑ and markdown‑free text.
+       
+    Returns a tuple:
+       - cleaned_text: text with all SFX markers, markdown markers, and emojis removed.
+       - sfx_events: list of dicts with keys: file, proportion, additional_offset, volume.
+         The proportion is computed from the cleaned text.
     """
-    # Find all SFX markers
+    # Find all SFX markers.
     matches = list(SFX_PATTERN.finditer(text))
-    # Remove SFX markers from text
+    
+    # Remove SFX markers from the text.
     text_without_sfx = SFX_PATTERN.sub('', text)
-    # Remove emojis from the entire text (so they are muted for TTS)
-    cleaned_text = remove_emojis(text_without_sfx)
+    # Remove markdown markers.
+    text_no_md = remove_markdown(text_without_sfx)
+    # Remove emojis.
+    cleaned_text = remove_emojis(text_no_md)
     
     sfx_events = []
     for match in matches:
-        # Get the substring before the marker and remove any emojis
+        # For timing, consider only the text before this marker
         substring = text[:match.start()]
-        substring_clean = remove_emojis(SFX_PATTERN.sub('', substring))
+        # Remove SFX markers, markdown, and emojis from the substring.
+        substring_clean = remove_emojis(remove_markdown(SFX_PATTERN.sub('', substring)))
         cleaned_position = len(substring_clean)
         total_length = len(cleaned_text)
         proportion = cleaned_position / total_length if total_length > 0 else 0
@@ -90,8 +105,9 @@ def process_text_and_sfx(text):
 
 def generate_segment_audio(text, index, voice):
     """
-    Generate TTS audio for the provided text as a single continuous clip.
-    Returns the generated AudioFileClip and its duration.
+    Generate a continuous TTS audio clip for the provided text.
+    The text is expected to be pre-cleaned (with no SFX markers, markdown, or emojis).
+    Returns an AudioFileClip and its duration.
     """
     if not text:
         return None, 0.0
@@ -99,7 +115,6 @@ def generate_segment_audio(text, index, voice):
     os.makedirs(AUDIO_DIR, exist_ok=True)
     audio_path = os.path.join(AUDIO_DIR, f"seg_{index}.wav")
     try:
-        # Generate the TTS audio for the entire (cleaned) text.
         generator = pipeline(text, voice=voice, split_pattern=r'\n+')
         audio_segments = [audio for _, _, audio in generator]
         if audio_segments:
@@ -113,19 +128,19 @@ def generate_segment_audio(text, index, voice):
 
 def process_message(message, index, voice):
     """
-    Process each message to remove emojis and SFX markers, compute their timings, and generate a single TTS audio.
-    
-    Returns a dict with the processed message data.
+    Process a message: clean the text for TTS, extract SFX timing, and generate TTS audio.
+    Returns a dict containing:
+      - index, cleaned_text, duration, main_audio, sfx_events.
     """
     original_text = message.get("text", "")
     base_duration = message.get("duration", 1)
     
-    # Clean text and capture SFX events (with emoji-free measurements)
+    # Process text: remove SFX markers, markdown markers, and emojis, and capture SFX events.
     cleaned_text, sfx_events = process_text_and_sfx(original_text)
-    # Generate one continuous TTS audio clip for the cleaned text.
+    # Generate a continuous TTS audio clip.
     main_audio, duration = generate_segment_audio(cleaned_text, index, voice)
     
-    # Compute the start time for each SFX event based on TTS duration
+    # Calculate the start time for each SFX event based on the TTS audio duration.
     for event in sfx_events:
         event['start'] = event['proportion'] * duration + event.get('additional_offset', 0.0)
     
@@ -141,25 +156,26 @@ def process_message(message, index, voice):
 
 def flatten_conversation(conversation):
     """
-    Flattens the conversation JSON to a list of message items and processes each message.
+    Flatten the conversation JSON into a list of processed message entries.
+    Each entry includes the TTS audio and SFX event timings.
     """
     flat = []
     index = 1
     for entry in conversation.get("conversation", []):
         role = entry.get("role", "unknown")
-        # Choose voice based on role.
+        # Choose a voice based on role.
         voice = "af_heart" if role == "assistant" else "am_adam"
         for msg in entry.get("messages", []):
             processed = process_message(msg, index, voice)
             processed['role'] = role
             flat.append(processed)
             index += 1
-            time.sleep(0.1)  # Prevent overloading the TTS API
+            time.sleep(0.1)  # Throttle TTS calls
     return flat
 
 def create_sfx_video(flat_list, output_video=OUTPUT_VIDEO):
     """
-    Creates a video from message images and overlays the generated TTS audio with SFX events.
+    Create the final video by pairing each message image with its audio (TTS + SFX).
     """
     clips = []
     for item in flat_list:
