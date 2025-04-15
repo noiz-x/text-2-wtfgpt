@@ -94,11 +94,20 @@ def select_font(token, fonts):
         return fonts["normal"]
 
 # --- Custom Text Length Helper ---
-def custom_textlength(draw, text, font):
+def custom_textlength(draw, text, font, emoji_adjustment_factor=1.5):
     """
     Measures text width character by character.
     For emoji characters (using common Unicode ranges), the font's mask is used to measure width,
-    and an adjustment factor (1.5 here) is applied.
+    and an adjustment factor is applied (default is 1.5, but it can be customized).
+    
+    Args:
+        draw (ImageDraw.Draw): The drawing context.
+        text (str): The text to measure.
+        font (ImageFont.FreeTypeFont): The font used for measurement.
+        emoji_adjustment_factor (float): Adjustment factor for emoji width. Default is 1.5.
+    
+    Returns:
+        int: The total width of the text.
     """
     total = 0
     emoji_pattern = re.compile(
@@ -112,9 +121,9 @@ def custom_textlength(draw, text, font):
     )
     for char in text:
         if emoji_pattern.match(char):
-            # Use getmask to measure emoji and apply a larger factor.
+            # Use getmask to measure emoji and apply the adjustment factor.
             char_width = font.getmask(char).size[0]
-            total += char_width * 1.5  # increased adjustment factor; tweak as needed
+            total += char_width * emoji_adjustment_factor
         else:
             # Use draw.textbbox to measure the width of non-emoji characters.
             bbox = draw.textbbox((0, 0), char, font=font)
@@ -217,7 +226,7 @@ def generate_text_profile(name, bg_color, text_color, size, font_path):
         font = ImageFont.load_default()
     bbox = draw.textbbox((0, 0), initials, font=font)
     text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
+    message_text = "\n ".join(msg.strip() for msg in accumulated_messages)
     x = (size - text_width) // 2
     y = (size - text_height) // 2
     draw.text((x, y), initials, fill=text_color, font=font)
