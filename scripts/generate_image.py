@@ -4,27 +4,18 @@ import json
 import os
 import re
 import logging
-import textwrap
-from PIL import Image, ImageDraw, ImageFont
+import sys
+import argparse
+from datetime import datetime
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pilmoji import Pilmoji
 from pilmoji.source import GoogleEmojiSource
-import argparse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 # === Utility Functions for Markdown Parsing ===
 
 def parse_markdown(text):
-    """
-    Parses a string containing Markdown-style formatting markers into tokens.
-    Supported markers (non-nested):
-      - Bold & Italic: ***text***
-      - Bold: **text**
-      - Italic: *text*
-      - Strikethrough: ~~text~~
-    Returns a list of tokens. Each token is a dict:
-       { "text": <str>, "bold": <bool>, "italic": <bool>, "strikethrough": <bool> }
-    """
     pattern = re.compile(r'(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*|~~.*?~~)')
     tokens = []
     last_idx = 0
@@ -76,14 +67,6 @@ def parse_markdown(text):
     return tokens
 
 def select_font(token, fonts):
-    """
-    Choose the appropriate font for a token based on its style flags.
-    The fonts dictionary is expected to have keys:
-      - normal (required)
-      - bold (optional)
-      - italic (optional)
-      - bold_italic (optional)
-    """
     if token["bold"] and token["italic"]:
         return fonts.get("bold_italic", fonts["normal"])
     elif token["bold"]:
@@ -93,22 +76,7 @@ def select_font(token, fonts):
     else:
         return fonts["normal"]
 
-# --- Custom Text Length Helper ---
 def custom_textlength(draw, text, font, emoji_adjustment_factor=1.5):
-    """
-    Measures text width character by character.
-    For emoji characters (using common Unicode ranges), the font's mask is used to measure width,
-    and an adjustment factor is applied (default is 1.5, but it can be customized).
-    
-    Args:
-        draw (ImageDraw.Draw): The drawing context.
-        text (str): The text to measure.
-        font (ImageFont.FreeTypeFont): The font used for measurement.
-        emoji_adjustment_factor (float): Adjustment factor for emoji width. Default is 1.5.
-    
-    Returns:
-        int: The total width of the text.
-    """
     total = 0
     emoji_pattern = re.compile(
         "[" 
@@ -121,28 +89,20 @@ def custom_textlength(draw, text, font, emoji_adjustment_factor=1.5):
     )
     for char in text:
         if emoji_pattern.match(char):
-            # Use getmask to measure emoji and apply the adjustment factor.
             char_width = font.getmask(char).size[0]
             total += char_width * emoji_adjustment_factor
         else:
-            # Use draw.textbbox to measure the width of non-emoji characters.
             bbox = draw.textbbox((0, 0), char, font=font)
             char_width = (bbox[2] - bbox[0]) if bbox else 0
             total += char_width
     return total
 
 def wrap_tokens(tokens, draw, fonts, max_width):
-    """
-    Wrap the list of tokens into multiple lines so that each line's total width does not exceed max_width.
-    Returns a list of lines; each line is a list of tokens.
-    Modified to replace newline characters.
-    """
     lines = []
     current_line = []
     current_width = 0
 
     for token in tokens:
-        # Split token text by spaces.
         words = token["text"].split(" ")
         for i, word in enumerate(words):
             word_text = word + (" " if i < len(words)-1 else "")
@@ -166,12 +126,6 @@ def wrap_tokens(tokens, draw, fonts, max_width):
     return lines
 
 def draw_markdown_lines(draw, pilmoji, lines, start_x, start_y, line_spacing, fill, fonts):
-    """
-    Draws the wrapped token lines onto the image.
-    For each token, uses the appropriate font.
-    If a token has strikethrough enabled, draws a line over it.
-    Returns the total height occupied.
-    """
     y = start_y
     for line in lines:
         x = start_x
@@ -213,174 +167,164 @@ def load_config(config_file="utils/config.json"):
         logging.error(f"Error parsing {config_file}: {e}")
     return None
 
-def generate_text_profile(name, bg_color, text_color, size, font_path):
+def generate_text_profile(name, bg_color, text_color, size, font_path, corner_radius_ratio=0.2):
     if not name:
         return None
-    profile_img = Image.new("RGBA", (size, size))
-    draw = ImageDraw.Draw(profile_img)
-    draw.ellipse((0, 0, size, size), fill=bg_color)
+
+    scale_factor = 4
+    high_res_size = size * scale_factor
+
+    profile_img_high = Image.new("RGBA", (high_res_size, high_res_size))
+    draw = ImageDraw.Draw(profile_img_high)
+    
+    corner_radius = int(high_res_size * corner_radius_ratio)
+    draw.rounded_rectangle((0, 0, high_res_size, high_res_size),
+                           radius=corner_radius,
+                           fill=bg_color)
+    
     initials = name[:2].upper()
+    
     try:
-        font = ImageFont.truetype(font_path, size//2)
+        font = ImageFont.truetype(font_path, high_res_size // 2)
     except IOError:
         font = ImageFont.load_default()
+    
     bbox = draw.textbbox((0, 0), initials, font=font)
     text_width = bbox[2] - bbox[0]
     text_height = bbox[3] - bbox[1]
-    x = (size - text_width) // 2
-    y = (size - text_height) // 2
+    x = (high_res_size - text_width) // 2
+    y = (high_res_size - text_height) // 2
     draw.text((x, y), initials, fill=text_color, font=font)
+    
+    profile_img = profile_img_high.resize((size, size), Image.LANCZOS)
     return profile_img
 
-def generate_chatgpt_message_block(accumulated_messages, role, message_index, config):
-    # Remove any SFX markers (they are processed elsewhere)
-    # Note: Joining messages with "\n " ensures that there is a space between messages.
-    message_text = "\n ".join(msg.strip() for msg in accumulated_messages)
+def generate_avatar_from_image(profpic_file, target_width):
+    scale_factor = 4
+    high_res_target = target_width * scale_factor
+
+    prof_pic = Image.open(profpic_file).convert("RGBA")
+    prof_pic.thumbnail((sys.maxsize, high_res_target), Image.LANCZOS)
+    
+    w, h = prof_pic.size
+    diameter = min(w, h)
+    left = (w - diameter) // 2
+    top = (h - diameter) // 2
+    prof_pic = prof_pic.crop((left, top, left + diameter, top + diameter))
+    
+    high_res_mask = Image.new("L", (diameter, diameter), 0)
+    mask_draw = ImageDraw.Draw(high_res_mask)
+    mask_draw.ellipse([(0, 0), (diameter, diameter)], fill=255)
+    prof_pic.putalpha(high_res_mask)
+    
+    avatar = prof_pic.resize((target_width, target_width), Image.LANCZOS)
+    return avatar
+
+def generate_message_block(accumulated_messages, role, message_index, config):
+    # Message content cleanup.
+    message_text = "\n".join(msg.strip() for msg in accumulated_messages)
     cleaned_message_text = re.sub(r'\[SFX:[^\]]+\]', '', message_text)
+
+    # Theme colors.
+    bg_color = config.get("background_color", "#343541")
+    text_color = config.get("text_color", "#e0e0e0")
+    username_color = config.get("username_color", "#ffffff")
     
-    background_color = config.get("background_color")
-    bubble_color = config.get("bubble_color")
-    text_color = config.get("text_color")
+    # Use the current time for the timestamp.
+    timestamp = "Today at " + datetime.now().strftime("%-I:%M %p")
+  # e.g., "4:20 PM"
+    
     font_path = config.get("font_path")
-    font_size = config.get("font_size")
-    block_width = config.get("block_width")
-    vertical_padding = config.get("vertical_padding")
-    horizontal_padding = config.get("horizontal_padding")
-    line_spacing = config.get("line_spacing")
-    
+    font_size = config.get("font_size", 24)
+    bold_font_path = config.get("bold_font_path", font_path)
+
+    block_width = config.get("block_width", 900)
+    avatar_size = config.get("profile_size", 80)
+    padding_x = config.get("horizontal_padding", 20)
+    padding_y = config.get("vertical_padding", 20)
+    gap_between_avatar_and_text = config.get("profile_gap", 20)
+    line_spacing = config.get("line_spacing", 8)
+
     profile_image_path = config.get("profile_image_path")
-    profile_name = config.get("profile_name", "").strip()
-    profile_size = config.get("profile_size")
-    profile_gap = config.get("profile_gap")
-    profile_bg = config.get("profile_bg")
-    profile_text_color = config.get("profile_text_color")
-    
-    # Optional after bubble text
-    after_bubble_text = config.get("after_bubble_text", "").strip()
-    after_bubble_font_path = config.get("after_bubble_font_path", font_path)
-    after_bubble_font_size = config.get("after_bubble_font_size", font_size)
-    after_bubble_text_color = config.get("after_bubble_text_color", text_color)
-    after_bubble_padding_top = config.get("after_bubble_padding_top", 10)
-    
-    fonts = {}
+    profile_name = config.get("profile_name", "Unknown")
+
     try:
-        fonts["normal"] = ImageFont.truetype(font_path, font_size)
-    except IOError:
-        fonts["normal"] = ImageFont.load_default()
-    fonts["bold"] = ImageFont.truetype(config.get("bold_font_path", font_path), font_size) if config.get("bold_font_path") else fonts["normal"]
-    fonts["italic"] = ImageFont.truetype(config.get("italic_font_path", font_path), font_size) if config.get("italic_font_path") else fonts["normal"]
-    fonts["bold_italic"] = ImageFont.truetype(config.get("bold_italic_font_path", font_path), font_size) if config.get("bold_italic_font_path") else fonts["normal"]
+        font = ImageFont.truetype(font_path, font_size)
+        bold_font = ImageFont.truetype(bold_font_path, font_size)
+        timestamp_font = ImageFont.truetype(font_path, font_size - 6)
+    except Exception:
+        font = ImageFont.load_default()
+        bold_font = font
+        timestamp_font = font
 
-    has_profile = bool(profile_image_path) or bool(profile_name)
-    profile_x = horizontal_padding if has_profile else 0
-    text_start_x = profile_x + (profile_size + profile_gap if has_profile else horizontal_padding)
+    avatar_x = padding_x
+    text_start_x = avatar_x + avatar_size + gap_between_avatar_and_text
+    max_text_width = block_width - text_start_x - padding_x
 
-    tokens = parse_markdown(cleaned_message_text)
-    dummy_img = Image.new("RGB", (block_width, 100), background_color)
+    dummy_img = Image.new("RGB", (block_width, 100), bg_color)
     dummy_draw = ImageDraw.Draw(dummy_img)
-    max_text_width = block_width - text_start_x - horizontal_padding
-    lines_tokens = wrap_tokens(tokens, dummy_draw, fonts, max_text_width)
-    
-    total_text_height = 0
-    for line in lines_tokens:
-        bbox = dummy_draw.textbbox((0,0), "Ag", font=fonts["normal"])
-        line_height = bbox[3] - bbox[1]
-        total_text_height += line_height + line_spacing
-    total_text_height -= line_spacing
+    tokens = parse_markdown(cleaned_message_text)
+    lines_tokens = wrap_tokens(tokens, dummy_draw, {
+        "normal": font, "bold": bold_font, "italic": font, "bold_italic": bold_font
+    }, max_text_width)
 
-    try:
-        name_font = ImageFont.truetype(font_path, max(font_size - 4, 12))
-    except IOError:
-        name_font = ImageFont.load_default()
-    name_height = name_font.getbbox("Ag")[3] + 4 if (has_profile and profile_name) else 0
-    bubble_height = total_text_height + 2 * vertical_padding
+    line_height = dummy_draw.textbbox((0, 0), "Ag", font=font)[3]
+    total_text_height = (line_height + line_spacing) * len(lines_tokens)
+    username_height = bold_font.getbbox("Ag")[3]
+    total_height = max(avatar_size + 2 * padding_y, username_height + total_text_height + 2 * padding_y)
 
-    # If after bubble text exists, measure its height.
-    if after_bubble_text:
-        try:
-            after_font = ImageFont.truetype(after_bubble_font_path, after_bubble_font_size)
-        except IOError:
-            after_font = ImageFont.load_default()
-        after_bbox = dummy_draw.textbbox((0,0), after_bubble_text, font=after_font)
-        after_text_height = after_bbox[3] - after_bbox[1]
-    else:
-        after_text_height = 0
-
-    content_height = name_height + bubble_height
-    total_height = max((profile_size + 2 * vertical_padding) if has_profile else 0, content_height + vertical_padding)
-    total_height += after_text_height + after_bubble_padding_top  # add extra height for after bubble text if present
-
-    img = Image.new("RGB", (block_width, total_height), background_color)
+    img = Image.new("RGBA", (block_width, total_height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
+    corner_radius = 8
+    draw.rounded_rectangle((0, 0, block_width, total_height), radius=corner_radius, fill=bg_color)
 
-    if has_profile:
-        if profile_image_path and os.path.exists(profile_image_path):
-            try:
-                profile_img = Image.open(profile_image_path).convert("RGBA")
-            except Exception as e:
-                logging.warning(f"Error loading profile image from {profile_image_path}: {e}")
-                profile_img = generate_text_profile(profile_name, profile_bg, profile_text_color, profile_size, font_path)
-        else:
-            profile_img = generate_text_profile(profile_name, profile_bg, profile_text_color, profile_size, font_path)
-        if profile_img:
-            profile_img = profile_img.resize((profile_size, profile_size))
-            mask = Image.new("L", (profile_size, profile_size), 0)
-            ImageDraw.Draw(mask).ellipse((0, 0, profile_size, profile_size), fill=255)
-            profile_img.putalpha(mask)
-            profile_y = (total_height - profile_size - (after_text_height + after_bubble_padding_top) if after_bubble_text else total_height - profile_size) // 2
-            img.paste(profile_img, (profile_x, profile_y), profile_img)
-
-    if has_profile and profile_name:
-        name_x = text_start_x
-        name_y = vertical_padding
-        draw.text((name_x, name_y), profile_name, font=name_font, fill="#ffffff")
-    else:
-        name_y = vertical_padding
-
-    bubble_y0 = name_y + (name_height + 6 if (has_profile and profile_name) else 0)
-    max_line_width = 0
-    for line in lines_tokens:
-        line_width = 0
-        for token in line:
-            token_font = select_font(token, fonts)
-            line_width += custom_textlength(dummy_draw, token["text"], token_font)
-        max_line_width = max(max_line_width, line_width)
-    bubble_x0 = text_start_x
-    bubble_x1 = bubble_x0 + max_line_width + 2 * horizontal_padding
-    bubble_y1 = bubble_y0 + bubble_height
-    draw.rounded_rectangle([bubble_x0, bubble_y0, bubble_x1, bubble_y1], radius=20, fill=bubble_color)
-
-    with Pilmoji(img, source=GoogleEmojiSource) as pilmoji:
-        text_draw_x = bubble_x0 + horizontal_padding
-        text_draw_y = bubble_y0 + vertical_padding
-        draw_markdown_lines(draw, pilmoji, lines_tokens, text_draw_x, text_draw_y, line_spacing, text_color, fonts)
-
-    # Draw after bubble text if provided.
-    if after_bubble_text:
+    if profile_image_path and os.path.exists(profile_image_path):
         try:
-            after_font = ImageFont.truetype(after_bubble_font_path, after_bubble_font_size)
-        except IOError:
-            after_font = ImageFont.load_default()
-        after_bbox = draw.textbbox((0,0), after_bubble_text, font=after_font)
-        after_text_width = after_bbox[2] - after_bbox[0]
-        after_text_x = (block_width - after_text_width) // 2  # centered horizontally
-        after_text_y = bubble_y1 + after_bubble_padding_top
-        draw.text((after_text_x, after_text_y), after_bubble_text, font=after_font, fill=after_bubble_text_color)
+            avatar = generate_avatar_from_image(profile_image_path, avatar_size)
+        except Exception as e:
+            logging.error(f"Error processing profile image: {e}")
+            avatar = generate_text_profile(profile_name, "#7289da", "#ffffff", avatar_size, font_path)
+    else:
+        avatar = generate_text_profile(profile_name, "#7289da", "#ffffff", avatar_size, font_path)
+
+    # Create an anti-aliased avatar border using high-res processing.
+    hr_avatar_size = avatar_size * 4
+    avatar_with_border_hr = Image.new("RGBA", (hr_avatar_size, hr_avatar_size), (0, 0, 0, 0))
+    bd = ImageDraw.Draw(avatar_with_border_hr)
+    border_width_hr = max(2, hr_avatar_size // 40)
+    bd.ellipse((0, 0, hr_avatar_size, hr_avatar_size), fill="#ffffff")
+    inner_mask_hr = Image.new("L", (hr_avatar_size, hr_avatar_size), 0)
+    ImageDraw.Draw(inner_mask_hr).ellipse((border_width_hr, border_width_hr, hr_avatar_size - border_width_hr, hr_avatar_size - border_width_hr), fill=255)
+    avatar_hr = avatar.resize((hr_avatar_size, hr_avatar_size), Image.LANCZOS)
+    avatar_with_border_hr.paste(avatar_hr, (0, 0), mask=inner_mask_hr)
+    avatar_with_border = avatar_with_border_hr.resize((avatar_size, avatar_size), Image.LANCZOS)
+    img.paste(avatar_with_border, (avatar_x, padding_y), avatar_with_border)
+
+    name_y = padding_y
+    draw.text((text_start_x, name_y), profile_name, font=bold_font, fill=username_color)
+    name_width = draw.textlength(profile_name, font=bold_font)
+    draw.text((text_start_x + name_width + 8, name_y + 2), timestamp, font=timestamp_font, fill="gray")
+
+    text_y = name_y + username_height + 4
+    with Pilmoji(img, source=GoogleEmojiSource) as pilmoji:
+        draw_markdown_lines(draw, pilmoji, lines_tokens, text_start_x, text_y, line_spacing, text_color, {
+            "normal": font,
+            "bold": bold_font,
+            "italic": font,
+            "bold_italic": bold_font
+        })
 
     os.makedirs("video", exist_ok=True)
-    image_filename = os.path.join("video", f"message_{message_index}_{role}.png")
+    filename = os.path.join("video", f"message_{message_index}_{role}.png")
     try:
-        img.save(image_filename)
-        logging.info(f"Saved image for {role} message block {message_index}: {image_filename}")
+        img.save(filename)
+        logging.info(f"Saved Discord-style message: {filename}")
     except Exception as e:
-        logging.error(f"Failed to save image {image_filename}: {e}")
+        logging.error(f"Error saving image: {e}")
+
     return img
 
 def merge_config(role, config):
-    """
-    Merge the default configuration with role-specific overrides.
-    Role-specific keys overwrite those in the default.
-    """
     default_cfg = config.get("default", {})
     role_cfg = config.get(role, {})
     merged = default_cfg.copy()
@@ -418,7 +362,7 @@ def main():
                 accumulated_messages = [text]
             previous_role = role
 
-            generate_chatgpt_message_block(accumulated_messages, role, message_index, speaker_config)
+            generate_message_block(accumulated_messages, role, message_index, speaker_config)
             message_index += 1
 
 if __name__ == "__main__":
