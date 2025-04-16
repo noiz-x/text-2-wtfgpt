@@ -10,4 +10,6 @@
 - add support for additional text-to-speech voices and languages ✅
 - implement a GUI for easier interaction with the tool ✅
 - Different voices for the TTS ✅
-- Resizing the video to short format
+- Resizing the video to short format ❌
+- Add a fade transition between clips ❌
+- Add background music ✅

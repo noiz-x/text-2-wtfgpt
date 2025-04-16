@@ -30,13 +30,8 @@ OUTPUT_VIDEO = "output/final_video.mp4"
 CONVERSATION_FILE = "utils/conversation.json"
 CONFIG_FILE = "utils/config.json"
 
-# Ensure output directories exist
-os.makedirs(AUDIO_DIR, exist_ok=True)
-os.makedirs("output", exist_ok=True)
-
 # Initialize Kokoro TTS pipeline
 pipeline = KPipeline(lang_code='a')
-
 
 def load_config(config_file=CONFIG_FILE):
     try:
@@ -55,46 +50,20 @@ def load_conversation(conversation_file=CONVERSATION_FILE):
         return None
 
 def remove_emojis(text):
-    """Remove all emojis from the text."""
     return emoji.replace_emoji(text, replace='')
 
 def remove_markdown(text):
-    """
-    Remove simple markdown formatting markers used for bold, italic, and strikethrough.
-    This removes occurrences of **, ***, *, and ~~.
-    """
     return re.sub(r'(\*\*\*|\*\*|\*|~~)', '', text)
 
 def process_text_and_sfx(text):
-    """
-    Process the input text to extract SFX event positions and return the cleaned text.
-    The procedure is:
-       1. Capture SFX markers (and later remove them).
-       2. Remove the SFX markers from the text.
-       3. Remove markdown formatting markers (so the TTS doesn't say them).
-       4. Remove emojis.
-       5. Compute SFX timings based on the emoji‑ and markdown‑free text.
-       
-    Returns a tuple:
-       - cleaned_text: text with all SFX markers, markdown markers, and emojis removed.
-       - sfx_events: list of dicts with keys: file, proportion, additional_offset, volume.
-         The proportion is computed from the cleaned text.
-    """
-    # Find all SFX markers.
     matches = list(SFX_PATTERN.finditer(text))
-    
-    # Remove SFX markers from the text.
     text_without_sfx = SFX_PATTERN.sub('', text)
-    # Remove markdown markers.
     text_no_md = remove_markdown(text_without_sfx)
-    # Remove emojis.
     cleaned_text = remove_emojis(text_no_md)
-    
+
     sfx_events = []
     for match in matches:
-        # For timing, consider only the text before this marker
         substring = text[:match.start()]
-        # Remove SFX markers, markdown, and emojis from the substring.
         substring_clean = remove_emojis(remove_markdown(SFX_PATTERN.sub('', substring)))
         cleaned_position = len(substring_clean)
         total_length = len(cleaned_text)
@@ -104,7 +73,7 @@ def process_text_and_sfx(text):
         sfx_file = params[0].strip()
         additional_offset = float(params[1]) if len(params) > 1 else 0.0
         volume = float(params[2]) if len(params) > 2 else 1.0
-        
+
         sfx_events.append({
             'file': sfx_file,
             'proportion': proportion,
@@ -114,11 +83,6 @@ def process_text_and_sfx(text):
     return cleaned_text, sfx_events
 
 def generate_segment_audio(text, index, voice):
-    """
-    Generate a continuous TTS audio clip for the provided text.
-    The text is expected to be pre-cleaned (with no SFX markers, markdown, or emojis).
-    Returns an AudioFileClip and its duration.
-    """
     if not text:
         return None, 0.0
 
@@ -137,25 +101,16 @@ def generate_segment_audio(text, index, voice):
     return None, 0.0
 
 def process_message(message, index, voice):
-    """
-    Process a message: clean the text for TTS, extract SFX timing, and generate TTS audio.
-    Returns a dict containing:
-      - index, cleaned_text, duration, main_audio, sfx_events.
-    """
     original_text = message.get("text", "")
     base_duration = message.get("duration", 1)
-    
-    # Process text: remove SFX markers, markdown markers, and emojis, and capture SFX events.
     cleaned_text, sfx_events = process_text_and_sfx(original_text)
-    # Generate a continuous TTS audio clip.
     main_audio, duration = generate_segment_audio(cleaned_text, index, voice)
-    
-    # Calculate the start time for each SFX event based on the TTS audio duration.
+
     for event in sfx_events:
         event['start'] = event['proportion'] * duration + event.get('additional_offset', 0.0)
-    
+
     final_duration = base_duration if main_audio is None else max(base_duration, duration)
-    
+
     return {
         'index': index,
         'cleaned_text': cleaned_text,
@@ -165,10 +120,6 @@ def process_message(message, index, voice):
     }
 
 def flatten_conversation(conversation):
-    """
-    Flatten the conversation JSON into a list of processed message entries.
-    Each entry includes the TTS audio and SFX event timings.
-    """
     config = load_config()
     flat = []
     index = 1
@@ -176,20 +127,20 @@ def flatten_conversation(conversation):
     for entry in conversation.get("conversation", []):
         role = entry.get("role", "unknown")
         user_config = config.get(role, config.get("default", {}))
-        voice = user_config.get("voice_model", "af_heart")  # fallback to default
+        voice = user_config.get("voice_model", "af_heart")
 
         for msg in entry.get("messages", []):
             processed = process_message(msg, index, voice)
             processed['role'] = role
             flat.append(processed)
             index += 1
-            time.sleep(0.1)  # Throttle TTS calls
+            time.sleep(0.1)
     return flat
 
 def create_sfx_video(flat_list, output_video=OUTPUT_VIDEO):
-    """
-    Create the final video by pairing each message image with its audio (TTS + SFX).
-    """
+    config = load_config()
+    background_music_path = config.get("default", {}).get("background_music_path")
+
     clips = []
     for item in flat_list:
         image_file = os.path.join(VIDEO_DIR, f"message_{item['index']}_{item['role']}.png")
@@ -212,9 +163,16 @@ def create_sfx_video(flat_list, output_video=OUTPUT_VIDEO):
         if audio_components:
             clip = clip.set_audio(CompositeAudioClip(audio_components))
         clips.append(clip)
-    
+
     if clips:
         video = concatenate_videoclips(clips, method="compose")
+        if background_music_path and os.path.exists(background_music_path):
+            try:
+                bg_music = AudioFileClip(background_music_path).volumex(0.3).set_duration(video.duration)
+                final_audio = CompositeAudioClip([video.audio, bg_music]) if video.audio else bg_music
+                video = video.set_audio(final_audio)
+            except Exception as e:
+                logging.warning(f"Failed to apply background music: {e}")
         try:
             video.write_videofile(
                 output_video,
@@ -235,14 +193,14 @@ def main():
     parser.add_argument("--output", default=OUTPUT_VIDEO)
     parser.add_argument("--cleanup", action="store_true")
     args = parser.parse_args()
-    
+
     conversation = load_conversation(args.conversation)
     if not conversation:
         return
-    
+
     flat_list = flatten_conversation(conversation)
     create_sfx_video(flat_list, args.output)
-    
+
     if args.cleanup:
         for folder in [AUDIO_DIR, VIDEO_DIR]:
             try:
