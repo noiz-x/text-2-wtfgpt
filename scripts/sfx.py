@@ -28,6 +28,7 @@ AUDIO_DIR = "audio"
 VIDEO_DIR = "video"
 OUTPUT_VIDEO = "output/final_video.mp4"
 CONVERSATION_FILE = "utils/conversation.json"
+CONFIG_FILE = "utils/config.json"
 
 # Ensure output directories exist
 os.makedirs(AUDIO_DIR, exist_ok=True)
@@ -35,6 +36,15 @@ os.makedirs("output", exist_ok=True)
 
 # Initialize Kokoro TTS pipeline
 pipeline = KPipeline(lang_code='a')
+
+
+def load_config(config_file=CONFIG_FILE):
+    try:
+        with open(config_file, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        logging.error(f"Error loading config: {e}")
+        return None
 
 def load_conversation(conversation_file=CONVERSATION_FILE):
     try:
@@ -159,12 +169,15 @@ def flatten_conversation(conversation):
     Flatten the conversation JSON into a list of processed message entries.
     Each entry includes the TTS audio and SFX event timings.
     """
+    config = load_config()
     flat = []
     index = 1
+
     for entry in conversation.get("conversation", []):
         role = entry.get("role", "unknown")
-        # Choose a voice based on role.
-        voice = "af_heart" if role == "assistant" else "am_adam"
+        user_config = config.get(role, config.get("default", {}))
+        voice = user_config.get("voice_model", "af_heart")  # fallback to default
+
         for msg in entry.get("messages", []):
             processed = process_message(msg, index, voice)
             processed['role'] = role
