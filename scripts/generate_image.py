@@ -13,7 +13,7 @@ from pilmoji.source import GoogleEmojiSource
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-# === Utility Functions for Markdown Parsing ===
+# === Markdown Parsing Utilities ===
 
 def parse_markdown(text):
     pattern = re.compile(r'(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*|~~.*?~~)')
@@ -29,52 +29,26 @@ def parse_markdown(text):
             })
         token_text = match.group(0)
         if token_text.startswith("***") and token_text.endswith("***"):
-            tokens.append({
-                "text": token_text[3:-3],
-                "bold": True,
-                "italic": True,
-                "strikethrough": False
-            })
+            tokens.append({"text": token_text[3:-3], "bold": True, "italic": True, "strikethrough": False})
         elif token_text.startswith("**") and token_text.endswith("**"):
-            tokens.append({
-                "text": token_text[2:-2],
-                "bold": True,
-                "italic": False,
-                "strikethrough": False
-            })
+            tokens.append({"text": token_text[2:-2], "bold": True, "italic": False, "strikethrough": False})
         elif token_text.startswith("*") and token_text.endswith("*"):
-            tokens.append({
-                "text": token_text[1:-1],
-                "bold": False,
-                "italic": True,
-                "strikethrough": False
-            })
+            tokens.append({"text": token_text[1:-1], "bold": False, "italic": True, "strikethrough": False})
         elif token_text.startswith("~~") and token_text.endswith("~~"):
-            tokens.append({
-                "text": token_text[2:-2],
-                "bold": False,
-                "italic": False,
-                "strikethrough": True
-            })
+            tokens.append({"text": token_text[2:-2], "bold": False, "italic": False, "strikethrough": True})
         last_idx = match.end()
     if last_idx < len(text):
-        tokens.append({
-            "text": text[last_idx:],
-            "bold": False,
-            "italic": False,
-            "strikethrough": False
-        })
+        tokens.append({"text": text[last_idx:], "bold": False, "italic": False, "strikethrough": False})
     return tokens
 
 def select_font(token, fonts):
     if token["bold"] and token["italic"]:
         return fonts.get("bold_italic", fonts["normal"])
-    elif token["bold"]:
+    if token["bold"]:
         return fonts.get("bold", fonts["normal"])
-    elif token["italic"]:
+    if token["italic"]:
         return fonts.get("italic", fonts["normal"])
-    else:
-        return fonts["normal"]
+    return fonts["normal"]
 
 def custom_textlength(draw, text, font, emoji_adjustment_factor=1.5):
     total = 0
@@ -89,281 +63,214 @@ def custom_textlength(draw, text, font, emoji_adjustment_factor=1.5):
     )
     for char in text:
         if emoji_pattern.match(char):
-            char_width = font.getmask(char).size[0]
-            total += char_width * emoji_adjustment_factor
+            total += font.getmask(char).size[0] * emoji_adjustment_factor
         else:
             bbox = draw.textbbox((0, 0), char, font=font)
-            char_width = (bbox[2] - bbox[0]) if bbox else 0
-            total += char_width
+            total += (bbox[2] - bbox[0]) if bbox else 0
     return total
 
 def wrap_tokens(tokens, draw, fonts, max_width):
-    lines = []
-    current_line = []
-    current_width = 0
-
+    lines, current_line, current_width = [], [], 0
     for token in tokens:
-        words = token["text"].split(" ")
-        for i, word in enumerate(words):
-            word_text = word + (" " if i < len(words)-1 else "")
-            word_text = word_text.replace("\n", " ")
-            ttoken = {
-                "text": word_text,
-                "bold": token["bold"],
-                "italic": token["italic"],
-                "strikethrough": token["strikethrough"]
-            }
-            font_used = select_font(ttoken, fonts)
-            word_width = custom_textlength(draw, ttoken["text"], font_used)
-            if current_line and current_width + word_width > max_width:
+        parts = token["text"].split(" ")
+        for i, part in enumerate(parts):
+            word = part + (" " if i < len(parts)-1 else "")
+            t = {**token, "text": word}
+            font_used = select_font(t, fonts)
+            w = custom_textlength(draw, word, font_used)
+            if current_line and current_width + w > max_width:
                 lines.append(current_line)
-                current_line = []
-                current_width = 0
-            current_line.append(ttoken)
-            current_width += word_width
+                current_line, current_width = [], 0
+            current_line.append(t)
+            current_width += w
     if current_line:
         lines.append(current_line)
     return lines
 
-def draw_markdown_lines(draw, pilmoji, lines, start_x, start_y, line_spacing, fill, fonts):
-    y = start_y
+def draw_markdown_lines(draw, pilmoji, lines, x0, y0, spacing, fill, fonts):
+    y = y0
     for line in lines:
-        x = start_x
-        max_line_height = 0
+        x, max_h = x0, 0
         for token in line:
-            token_font = select_font(token, fonts)
-            pilmoji.text((x, y), token["text"], font=token_font, fill=fill)
-            bbox = draw.textbbox((0, 0), token["text"], font=token_font)
-            token_width = bbox[2] - bbox[0]
-            token_height = bbox[3] - bbox[1]
-            if token["strikethrough"]:
-                strike_y = y + token_height
-                draw.line((x, strike_y, x + token_width, strike_y), fill=fill, width=1)
-            x += token_width
-            max_line_height = max(max_line_height, token_height)
-        y += max_line_height + line_spacing
-    total_height = y - start_y
-    return total_height
+            font = select_font(token, fonts)
+            pilmoji.text((x, y), token["text"], font=font, fill=fill)
+            bbox = draw.textbbox((0, 0), token["text"], font=font)
+            w, h = bbox[2]-bbox[0], bbox[3]-bbox[1]
+            if token.get("strikethrough"):
+                draw.line((x, y + h/2, x + w, y + h/2), fill=fill, width=1)
+            x += w
+            max_h = max(max_h, h)
+        y += max_h + spacing
+    return y - y0
 
-# === End Markdown Utility Functions ===
+# === JSON Load Helper ===
 
-def load_conversation(conversation_file="utils/conversation.json"):
+def load_json(path):
     try:
-        with open(conversation_file, "r") as f:
+        with open(path, 'r') as f:
             return json.load(f)
-    except FileNotFoundError:
-        logging.error(f"Conversation file {conversation_file} not found.")
-    except json.JSONDecodeError as e:
-        logging.error(f"Error parsing {conversation_file}: {e}")
-    return None
+    except Exception as e:
+        logging.error(f"Failed loading {path}: {e}")
+    return {}
 
-def load_config(config_file="utils/config.json"):
-    try:
-        with open(config_file, "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        logging.error(f"Config file {config_file} not found.")
-    except json.JSONDecodeError as e:
-        logging.error(f"Error parsing {config_file}: {e}")
-    return None
+# === Profile & Avatar Generation ===
 
-def generate_text_profile(name, bg_color, text_color, size, font_path, corner_radius_ratio=0.2):
-    if not name:
-        return None
-
-    scale_factor = 4
-    high_res_size = size * scale_factor
-
-    profile_img_high = Image.new("RGBA", (high_res_size, high_res_size))
-    draw = ImageDraw.Draw(profile_img_high)
-    
-    corner_radius = int(high_res_size * corner_radius_ratio)
-    draw.rounded_rectangle((0, 0, high_res_size, high_res_size),
-                           radius=corner_radius,
-                           fill=bg_color)
-    
+def generate_text_profile(name, bg, fg, size, font_path, r=0.2):
+    scale, H = 4, size * 4
+    img = Image.new('RGBA', (H, H), bg)
+    draw = ImageDraw.Draw(img)
+    draw.rounded_rectangle((0,0,H,H), radius=int(H*r), fill=bg)
     initials = name[:2].upper()
-    
     try:
-        font = ImageFont.truetype(font_path, high_res_size // 2)
+        font = ImageFont.truetype(font_path, H//2)
     except IOError:
         font = ImageFont.load_default()
-    
-    bbox = draw.textbbox((0, 0), initials, font=font)
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
-    x = (high_res_size - text_width) // 2
-    y = (high_res_size - text_height) // 2
-    draw.text((x, y), initials, fill=text_color, font=font)
-    
-    profile_img = profile_img_high.resize((size, size), Image.LANCZOS)
-    return profile_img
+    bb = draw.textbbox((0,0), initials, font=font)
+    w, h = bb[2]-bb[0], bb[3]-bb[1]
+    draw.text(((H-w)/2, (H-h)/2), initials, font=font, fill=fg)
+    return img.resize((size, size), Image.LANCZOS)
 
-def generate_avatar_from_image(profpic_file, target_width):
-    scale_factor = 4
-    high_res_target = target_width * scale_factor
+def generate_avatar(image_path, size):
+    scale, T = 4, size * 4
+    im = Image.open(image_path).convert('RGBA')
+    im.thumbnail((sys.maxsize, T), Image.LANCZOS)
+    w, h = im.size
+    d = min(w, h)
+    im = im.crop(((w-d)//2, (h-d)//2, (w-d)//2 + d, (h-d)//2 + d))
+    mask = Image.new('L', (d, d), 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, d, d), fill=255)
+    im.putalpha(mask)
+    return im.resize((size, size), Image.LANCZOS)
 
-    prof_pic = Image.open(profpic_file).convert("RGBA")
-    prof_pic.thumbnail((sys.maxsize, high_res_target), Image.LANCZOS)
-    
-    w, h = prof_pic.size
-    diameter = min(w, h)
-    left = (w - diameter) // 2
-    top = (h - diameter) // 2
-    prof_pic = prof_pic.crop((left, top, left + diameter, top + diameter))
-    
-    high_res_mask = Image.new("L", (diameter, diameter), 0)
-    mask_draw = ImageDraw.Draw(high_res_mask)
-    mask_draw.ellipse([(0, 0), (diameter, diameter)], fill=255)
-    prof_pic.putalpha(high_res_mask)
-    
-    avatar = prof_pic.resize((target_width, target_width), Image.LANCZOS)
-    return avatar
+# === Config Merge with Role Colors ===
 
-def generate_message_block(accumulated_messages, role, message_index, config):
-    # Message content cleanup.
-    message_text = "\n".join(msg.strip() for msg in accumulated_messages)
-    cleaned_message_text = re.sub(r'\[SFX:[^\]]+\]', '', message_text)
+def merge_config(role, cfg):
+    default = cfg.get('default', {})
+    role_cfg = cfg.get(role, {})
+    merged = {**default, **role_cfg}
+    colors = default.get('role_colors', {})
+    if role in colors:
+        merged['username_color'] = colors[role]
+    return merged
 
-    # Theme colors.
-    bg_color = config.get("background_color", "#343541")
-    text_color = config.get("text_color", "#e0e0e0")
-    username_color = config.get("username_color", "#ffffff")
-    
-    # Use the current time for the timestamp.
-    timestamp = "Today at " + datetime.now().strftime("%-I:%M %p")
-  # e.g., "4:20 PM"
-    
-    font_path = config.get("font_path")
-    font_size = config.get("font_size", 24)
-    bold_font_path = config.get("bold_font_path", font_path)
+# === Message Block Generation ===
 
-    block_width = config.get("block_width", 900)
-    avatar_size = config.get("profile_size", 80)
-    padding_x = config.get("horizontal_padding", 20)
-    padding_y = config.get("vertical_padding", 20)
-    gap_between_avatar_and_text = config.get("profile_gap", 20)
-    line_spacing = config.get("line_spacing", 8)
+def generate_message_block(acc_msgs, role, idx, cfg):
+    # Clean and combine text
+    text = "\n".join(m.strip() for m in acc_msgs)
+    text = re.sub(r'\[SFX:[^\]]+\]', '', text)
 
-    profile_image_path = config.get("profile_image_path")
-    profile_name = config.get("profile_name", "Unknown")
+    c = merge_config(role, cfg)
+    bg, fg = c['background_color'], c['text_color']
+    uname_col = c['username_color']
 
+    ts = datetime.now().strftime("%-I:%M %p")
+    timestamp = f"Today at {ts}"
+
+    # Fonts
+    fp, bfp = c['font_path'], c.get('bold_font_path', c['font_path'])
+    sz = c.get('font_size', 24)
     try:
-        font = ImageFont.truetype(font_path, font_size)
-        bold_font = ImageFont.truetype(bold_font_path, font_size)
-        timestamp_font = ImageFont.truetype(font_path, font_size - 6)
-    except Exception:
-        font = ImageFont.load_default()
-        bold_font = font
-        timestamp_font = font
+        font = ImageFont.truetype(fp, sz)
+        bold = ImageFont.truetype(bfp, sz)
+        ts_font = ImageFont.truetype(fp, sz - 6)
+    except IOError:
+        font = bold = ts_font = ImageFont.load_default()
 
-    avatar_x = padding_x
-    text_start_x = avatar_x + avatar_size + gap_between_avatar_and_text
-    max_text_width = block_width - text_start_x - padding_x
+    # Layout metrics
+    W = c['block_width']; av = c['profile_size']
+    px, py = c['horizontal_padding'], c['vertical_padding']
+    gap, ls = c['profile_gap'], c['line_spacing']
 
-    dummy_img = Image.new("RGB", (block_width, 100), bg_color)
-    dummy_draw = ImageDraw.Draw(dummy_img)
-    tokens = parse_markdown(cleaned_message_text)
-    lines_tokens = wrap_tokens(tokens, dummy_draw, {
-        "normal": font, "bold": bold_font, "italic": font, "bold_italic": bold_font
-    }, max_text_width)
+    # Prepare text lines
+    dummy = Image.new('RGB', (W, 100), bg)
+    dd = ImageDraw.Draw(dummy)
+    tokens = parse_markdown(text)
+    max_w = W - (px*2 + av + gap)
+    lines = wrap_tokens(tokens, dd, {
+        "normal": font, "bold": bold,
+        "italic": font, "bold_italic": bold
+    }, max_w)
+    line_h = dd.textbbox((0,0),"Ag",font=font)[3]
+    txt_h = len(lines)*(line_h + ls)
+    name_h = bold.getbbox("Ag")[3]
+    H = max(av + 2*py, name_h + txt_h + 2*py)
 
-    line_height = dummy_draw.textbbox((0, 0), "Ag", font=font)[3]
-    total_text_height = (line_height + line_spacing) * len(lines_tokens)
-    username_height = bold_font.getbbox("Ag")[3]
-    total_height = max(avatar_size + 2 * padding_y, username_height + total_text_height + 2 * padding_y)
+    # Base image
+    img = Image.new('RGBA', (W, int(H)), (0,0,0,0))
+    dr = ImageDraw.Draw(img)
+    dr.rounded_rectangle((0,0,W,H), radius=8, fill=bg)
 
-    img = Image.new("RGBA", (block_width, total_height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    corner_radius = 8
-    draw.rounded_rectangle((0, 0, block_width, total_height), radius=corner_radius, fill=bg_color)
-
-    if profile_image_path and os.path.exists(profile_image_path):
+    # Avatar with border
+    if c.get('profile_image_path') and os.path.exists(c['profile_image_path']):
         try:
-            avatar = generate_avatar_from_image(profile_image_path, avatar_size)
-        except Exception as e:
-            logging.error(f"Error processing profile image: {e}")
-            avatar = generate_text_profile(profile_name, "#7289da", "#ffffff", avatar_size, font_path)
+            av_img = generate_avatar(c['profile_image_path'], av)
+        except Exception:
+            av_img = generate_text_profile(c.get('profile_name','?'),
+                                           "#7289da","#ffffff", av, fp)
     else:
-        avatar = generate_text_profile(profile_name, "#7289da", "#ffffff", avatar_size, font_path)
+        av_img = generate_text_profile(c.get('profile_name','?'),
+                                       "#7289da","#ffffff", av, fp)
 
-    # Create an anti-aliased avatar border using high-res processing.
-    hr_avatar_size = avatar_size * 4
-    avatar_with_border_hr = Image.new("RGBA", (hr_avatar_size, hr_avatar_size), (0, 0, 0, 0))
-    bd = ImageDraw.Draw(avatar_with_border_hr)
-    border_width_hr = max(2, hr_avatar_size // 40)
-    bd.ellipse((0, 0, hr_avatar_size, hr_avatar_size), fill="#ffffff")
-    inner_mask_hr = Image.new("L", (hr_avatar_size, hr_avatar_size), 0)
-    ImageDraw.Draw(inner_mask_hr).ellipse((border_width_hr, border_width_hr, hr_avatar_size - border_width_hr, hr_avatar_size - border_width_hr), fill=255)
-    avatar_hr = avatar.resize((hr_avatar_size, hr_avatar_size), Image.LANCZOS)
-    avatar_with_border_hr.paste(avatar_hr, (0, 0), mask=inner_mask_hr)
-    avatar_with_border = avatar_with_border_hr.resize((avatar_size, avatar_size), Image.LANCZOS)
-    img.paste(avatar_with_border, (avatar_x, padding_y), avatar_with_border)
+    HR = av * 4
+    border = Image.new('RGBA', (HR, HR), (0,0,0,0))
+    bdr = ImageDraw.Draw(border)
+    bw = max(2, HR//40)
+    bdr.ellipse((0,0,HR,HR), fill='#ffffff')
+    mask = Image.new('L', (HR, HR), 0)
+    ImageDraw.Draw(mask).ellipse((bw,bw,HR-bw,HR-bw), fill=255)
+    avatar_hr = av_img.resize((HR, HR), Image.LANCZOS)
+    border.paste(avatar_hr, (0,0), mask)
+    avatar = border.resize((av, av), Image.LANCZOS)
+    img.paste(avatar, (px, py), avatar)
 
-    name_y = padding_y
-    draw.text((text_start_x, name_y), profile_name, font=bold_font, fill=username_color)
-    name_width = draw.textlength(profile_name, font=bold_font)
-    draw.text((text_start_x + name_width + 8, name_y + 2), timestamp, font=timestamp_font, fill="gray")
+    # Username & timestamp
+    x0, y0 = px + av + gap, py
+    dr.text((x0, y0), c.get('profile_name','?'), font=bold, fill=uname_col)
+    nw = dr.textlength(c.get('profile_name','?'), font=bold)
+    dr.text((x0 + nw + 8, y0 + 2), timestamp, font=ts_font, fill="gray")
 
-    text_y = name_y + username_height + 4
-    with Pilmoji(img, source=GoogleEmojiSource) as pilmoji:
-        draw_markdown_lines(draw, pilmoji, lines_tokens, text_start_x, text_y, line_spacing, text_color, {
-            "normal": font,
-            "bold": bold_font,
-            "italic": font,
-            "bold_italic": bold_font
+    # Message text
+    with Pilmoji(img, source=GoogleEmojiSource) as p:
+        draw_markdown_lines(dr, p, lines, x0, y0 + name_h + 4, ls, fg, {
+            "normal": font, "bold": bold,
+            "italic": font, "bold_italic": bold
         })
 
-    os.makedirs("video", exist_ok=True)
-    filename = os.path.join("video", f"message_{message_index}_{role}.png")
+    # Save
+    os.makedirs('video', exist_ok=True)
+    out = os.path.join('video', f'message_{idx}_{role}.png')
     try:
-        img.save(filename)
-        logging.info(f"Saved Discord-style message: {filename}")
+        img.save(out)
+        logging.info(f"Saved Discord-style message: {out}")
     except Exception as e:
         logging.error(f"Error saving image: {e}")
 
     return img
 
-def merge_config(role, config):
-    default_cfg = config.get("default", {})
-    role_cfg = config.get(role, {})
-    merged = default_cfg.copy()
-    merged.update(role_cfg)
-    return merged
-
 def main():
-    parser = argparse.ArgumentParser(description="Generate images for conversation messages.")
-    parser.add_argument("--conversation", default="utils/conversation.json", help="Path to conversation JSON file.")
-    parser.add_argument("--config", default="utils/config.json", help="Path to configuration JSON file.")
+    parser = argparse.ArgumentParser(description="Generate Discord-style chat images.")
+    parser.add_argument('--conversation', default='utils/conversation.json')
+    parser.add_argument('--config', default='utils/config.json')
     args = parser.parse_args()
 
-    conversation = load_conversation(args.conversation)
-    if not conversation:
-        return
-    config = load_config(args.config)
-    if not config:
+    conv = load_json(args.conversation)
+    cfg = load_json(args.config)
+    if not conv or not cfg:
         return
 
-    message_index = 1
-    previous_role = None
-    accumulated_messages = []
-
-    for entry in conversation.get("conversation", []):
-        role = entry.get("role", "unknown")
-        speaker_config = merge_config(role, config)
-        if not speaker_config:
-            logging.error(f"Missing configuration for role: {role}")
-            continue
-        for msg_obj in entry.get("messages", []):
-            text = msg_obj.get("text", "")
-            if previous_role is None or role == previous_role:
-                accumulated_messages.append(text)
+    idx, prev, acc = 1, None, []
+    for entry in conv.get('conversation', []):
+        role = entry.get('role')
+        for m in entry.get('messages', []):
+            txt = m.get('text','')
+            if prev and role != prev:
+                acc = [txt]
             else:
-                accumulated_messages = [text]
-            previous_role = role
+                acc.append(txt)
+            prev = role
+            generate_message_block(acc, role, idx, cfg)
+            idx += 1
 
-            generate_message_block(accumulated_messages, role, message_index, speaker_config)
-            message_index += 1
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

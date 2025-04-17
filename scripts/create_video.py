@@ -10,7 +10,6 @@ import argparse
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 def load_conversation(conversation_file="utils/conversation.json"):
-    """Load conversation data from the JSON file."""
     try:
         with open(conversation_file, "r") as f:
             return json.load(f)
@@ -21,11 +20,6 @@ def load_conversation(conversation_file="utils/conversation.json"):
     return None
 
 def flatten_conversation(conversation):
-    """
-    Flatten the conversation into a list of tuples:
-    (image_index, role, duration)
-    in the same order as images were generated.
-    """
     flat = []
     index = 1
     try:
