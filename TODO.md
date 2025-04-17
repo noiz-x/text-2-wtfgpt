@@ -33,7 +33,7 @@ draw.rounded_rectangle(
 
 ---
 
-## 2. **Timestamps & Metadata**
+## 2. **Timestamps & Metadata** ✅
 **Goal**: Add "edited" tags and precise timestamps.  
 **Files to Edit**:  
 - `conversation.json`  
