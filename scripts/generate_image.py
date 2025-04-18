@@ -96,6 +96,7 @@ def draw_markdown_lines(draw, pilmoji, lines, x0, y0, spacing, fill, fonts):
 
 def extract_first_url(text):
     match = re.search(r'https?://\S+', text)
+    return None
     return match.group(0) if match else None
 
 # === Fix here: cast to int to avoid float offsets ===
