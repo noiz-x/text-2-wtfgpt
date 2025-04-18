@@ -1,5 +1,3 @@
-# scripts/generate_image.py
-
 import json
 import os
 import re
@@ -96,7 +94,80 @@ def draw_markdown_lines(draw, pilmoji, lines, x0, y0, spacing, fill, fonts):
         y += max_h + spacing
     return y - y0
 
-# === JSON Loader ===
+def extract_first_url(text):
+    match = re.search(r'https?://\S+', text)
+    return match.group(0) if match else None
+
+# === Fix here: cast to int to avoid float offsets ===
+def draw_reactions(
+    draw,
+    pilmoji,
+    reactions,
+    x,
+    y,
+    emoji_font,
+    count_font=None,
+    *,
+    # Discord‑style defaults:
+    bg_color="#282d51",          # pill background
+    outline_color="#393f88",     # pill border
+    text_color="#DCDFE4",        # emoji & count
+    radius=12,                   # pill corner radius
+    inner_pad_x=12,               # horizontal padding inside pill
+    inner_pad_y=8,               # vertical padding inside pill
+    item_spacing=6,              # spacing between pills
+    icon_spacing=15              # spacing between emoji & count
+):
+    """
+    Draws Discord‑style reaction pills with better padding & colors.
+    Returns the baseline y + height of tallest pill.
+    """
+    if count_font is None:
+        count_font = emoji_font
+
+    max_h = 0
+    for reaction in reactions:
+        emoji = reaction["emoji"]
+        count_text = str(reaction["count"])
+
+        # Measure emoji & count
+        eb = draw.textbbox((0,0), emoji, font=emoji_font)
+        cb = draw.textbbox((0,0), count_text, font=count_font)
+        ew, eh = eb[2]-eb[0], eb[3]-eb[1]
+        cw, ch = cb[2]-cb[0], cb[3]-cb[1]
+
+        # Pill dimensions
+        pill_w = inner_pad_x*2 + ew + icon_spacing + cw
+        pill_h = inner_pad_y*2 + max(eh, ch)
+
+        # Draw background pill
+        rect = [x, y, x + pill_w, y + pill_h]
+        draw.rounded_rectangle(rect, radius=radius, fill=bg_color, outline=outline_color)
+
+        # Center emoji vertically
+        ey = y + (pill_h - eh) // 3.5
+        px = x + inner_pad_x
+        pilmoji.text((px, int(ey)), emoji, font=emoji_font, fill=text_color)
+
+        # Draw count next, centered
+        px += ew + icon_spacing
+        cy = y + (pill_h - ch) // 3
+        draw.text((px, cy), count_text, font=count_font, fill=text_color)
+
+        # Advance
+        x += pill_w + item_spacing
+        max_h = max(max_h, pill_h)
+
+    return y + max_h
+
+def draw_link_preview(draw, x, y, width, url, font):
+    padding = 10
+    height = 40
+    box_color = "#f2f3f5"
+    text_color = "#0066cc"
+    draw.rounded_rectangle((x, y, x + width, y + height), radius=6, fill=box_color)
+    draw.text((x + padding, y + 10), url, font=font, fill=text_color)
+    return height + 6
 
 def load_json(path):
     try:
@@ -105,8 +176,6 @@ def load_json(path):
     except Exception as e:
         logging.error(f"Failed loading {path}: {e}")
     return {}
-
-# === Profile & Avatar Helpers ===
 
 def generate_text_profile(name, bg, fg, size, font_path, r=0.2):
     H = size * 4
@@ -135,8 +204,6 @@ def generate_avatar(path, size):
     im.putalpha(mask)
     return im.resize((size,size), Image.LANCZOS)
 
-# === Config Merge with Role Colors ===
-
 def merge_config(role, cfg):
     default = cfg.get('default', {})
     role_cfg = cfg.get(role, {})
@@ -147,13 +214,7 @@ def merge_config(role, cfg):
             break
     return merged
 
-# === Message Block with Timestamps & Edited Flag ===
-
 def generate_message_block(messages, role, idx, cfg):
-    """
-    messages: list of dicts, each with 'text', optionally 'timestamp' and 'edited'
-    """
-    # combine texts
     full_text = "\n".join(m['text'] for m in messages)
     full_text = re.sub(r'\[SFX:[^\]]+\]', '', full_text)
 
@@ -161,7 +222,6 @@ def generate_message_block(messages, role, idx, cfg):
     bg, fg = c['background_color'], c['text_color']
     uname_col = c['username_color']
 
-    # timestamp logic
     now = datetime.now()
     first = messages[0]
     ts_str = now.strftime("Today at %-I:%M %p")
@@ -177,23 +237,21 @@ def generate_message_block(messages, role, idx, cfg):
     if first.get('edited', False):
         ts_str += " (edited)"
 
-    # fonts
     fp, bfp = c['font_path'], c.get('bold_font_path', c['font_path'])
     sz = c.get('font_size', 24)
     try:
         font = ImageFont.truetype(fp, sz)
         bold = ImageFont.truetype(bfp, sz)
         ts_font = ImageFont.truetype(fp, sz-6)
+        emoji_font = ImageFont.truetype(fp, sz-6)
     except IOError:
-        font = bold = ts_font = ImageFont.load_default()
+        font = bold = ts_font = emoji_font = ImageFont.load_default()
 
-    # layout
     W = c['block_width']
     av = c['profile_size']
     px, py = c['horizontal_padding'], c['vertical_padding']
     gap, ls = c['profile_gap'], c['line_spacing']
 
-    # wrap text
     dummy = Image.new('RGB', (W,100), bg)
     dd = ImageDraw.Draw(dummy)
     tokens = parse_markdown(full_text)
@@ -202,17 +260,20 @@ def generate_message_block(messages, role, idx, cfg):
         'normal': font, 'bold': bold,
         'italic': font, 'bold_italic': bold
     }, max_w)
-    line_h = dd.textbbox((0,0), "Ag", font=font)[3]
-    txt_h = len(lines)*(line_h + ls)
-    name_h = bold.getbbox("Ag")[3]
-    H = max(av + 2*py, name_h + txt_h + 2*py)
 
-    # image canvas
+    name_h = bold.getbbox("Ag")[3]
+    text_height = len(lines) * (name_h + ls)
+    link = extract_first_url(full_text)
+    link_preview_h = 50 if link else 0
+    reactions = first.get("reactions", [])
+    reaction_h = 30 if reactions else 0
+    total_extra = link_preview_h + reaction_h
+    H = max(av + 2*py, name_h + text_height + total_extra + 2*py)
+
     img = Image.new('RGBA', (W, int(H)), (0,0,0,0))
     dr = ImageDraw.Draw(img)
     dr.rounded_rectangle((0,0,W,H), radius=8, fill=bg)
 
-    # avatar + border
     if c.get('profile_image_path') and os.path.exists(c['profile_image_path']):
         try:
             av_img = generate_avatar(c['profile_image_path'], av)
@@ -232,20 +293,26 @@ def generate_message_block(messages, role, idx, cfg):
     avatar = border.resize((av,av), Image.LANCZOS)
     img.paste(avatar, (px, py), avatar)
 
-    # draw name + timestamp
     x0, y0 = px + av + gap, py
     dr.text((x0, y0), c.get('profile_name','?'), font=bold, fill=uname_col)
     name_w = dr.textlength(c.get('profile_name','?'), font=bold)
     dr.text((x0 + name_w + 8, y0 + 2), ts_str, font=ts_font, fill="gray")
 
-    # draw message text
     with Pilmoji(img, source=GoogleEmojiSource) as p:
-        draw_markdown_lines(dr, p, lines, x0, y0 + name_h + 4, ls, fg, {
+        y_msg = y0 + name_h + 4
+        draw_markdown_lines(dr, p, lines, x0, y_msg, ls, fg, {
             'normal': font, 'bold': bold,
             'italic': font, 'bold_italic': bold
         })
 
-    # save
+        y_offset = y_msg + text_height
+
+        if link:
+            y_offset += draw_link_preview(dr, x0, y_offset, max_w, link, font)
+
+        if reactions:
+            y_offset += draw_reactions(dr, p, reactions, x0, y_offset, emoji_font)
+
     os.makedirs('video', exist_ok=True)
     out = os.path.join('video', f'message_{idx}_{role}.png')
     try:
@@ -255,8 +322,6 @@ def generate_message_block(messages, role, idx, cfg):
         logging.error(f"Error saving image: {e}")
 
     return img
-
-# === Main ===
 
 def main():
     parser = argparse.ArgumentParser(description="Generate Discord‑style chat images.")
@@ -270,12 +335,11 @@ def main():
         return
 
     idx, prev = 1, None
-    acc = []  # will hold dicts of messages for the current speaker
+    acc = []
 
     for entry in conv.get('conversation', []):
         role = entry.get('role')
         for msg in entry.get('messages', []):
-            # if speaker changed, reset accumulator
             if prev and role != prev:
                 acc = []
             acc.append(msg)
