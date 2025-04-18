@@ -1,15 +1,44 @@
 {
   "conversation": [
     {
+      "role": "system",
+      "messages": [
+        {
+          "text": "[character] joined the server",
+          "timestamp": "yyyy-mm-ddThh:mm:ss+01:00"
+        }
+      ]
+    },
+    {
       "role": "string",
       "messages": [
         {
           "text": "string [SFX:filename.wav, offset, volume]",
-          "duration": int
+          "duration": int,
+          "timestamp": "yyyy-mm-ddThh:mm:ss+01:00"
+          "edited": true,
+          "reactions": [
+            { "emoji": "📧", "count": 1 },
+            { "emoji": "👍", "count": 3 }
+          ]
         },
         {
           "text": "string",
-          "duration": int
+          "duration": int,
+          "timestamp": "yyyy-mm-ddThh:mm:ss+01:00"
+          "edited": false,
+          "reactions": [
+            { "emoji": "😂", "count": 2 }
+          ]
+        }
+      ]
+    },
+    {
+      "role": "system",
+      "messages": [
+        {
+          "text": "[character] left the server",
+          "timestamp": "yyyy-mm-ddThh:mm:ss+01:00"
         }
       ]
     }

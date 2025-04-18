@@ -4,33 +4,49 @@ import re
 import logging
 import sys
 import argparse
+import copy
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 from pilmoji import Pilmoji
 from pilmoji.source import GoogleEmojiSource
 
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-# === Markdown Parsing Utilities ===
+# -----------------------------------------------------------------------------
+# JSON Loader
+# -----------------------------------------------------------------------------
+def load_json(path):
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logging.error(f"Failed loading {path}: {e}")
+        return None
 
+# -----------------------------------------------------------------------------
+# Markdown + Emoji Drawing Helpers
+# -----------------------------------------------------------------------------
 def parse_markdown(text):
     pattern = re.compile(r'(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*|~~.*?~~)')
-    tokens, last_idx = [], 0
-    for match in pattern.finditer(text):
-        if match.start() > last_idx:
-            tokens.append({"text": text[last_idx:match.start()], "bold": False, "italic": False, "strikethrough": False})
-        token = match.group(0)
-        if token.startswith("***"):
-            tokens.append({"text": token[3:-3], "bold": True, "italic": True, "strikethrough": False})
-        elif token.startswith("**"):
-            tokens.append({"text": token[2:-2], "bold": True, "italic": False, "strikethrough": False})
-        elif token.startswith("*"):
-            tokens.append({"text": token[1:-1], "bold": False, "italic": True, "strikethrough": False})
-        elif token.startswith("~~"):
-            tokens.append({"text": token[2:-2], "bold": False, "italic": False, "strikethrough": True})
-        last_idx = match.end()
-    if last_idx < len(text):
-        tokens.append({"text": text[last_idx:], "bold": False, "italic": False, "strikethrough": False})
+    tokens, last = [], 0
+    for m in pattern.finditer(text):
+        if m.start() > last:
+            tokens.append({"text": text[last:m.start()], "bold": False, "italic": False, "strikethrough": False})
+        t = m.group(0)
+        if t.startswith("***"):
+            tokens.append({"text": t[3:-3], "bold": True, "italic": True, "strikethrough": False})
+        elif t.startswith("**"):
+            tokens.append({"text": t[2:-2], "bold": True, "italic": False, "strikethrough": False})
+        elif t.startswith("*"):
+            tokens.append({"text": t[1:-1], "bold": False, "italic": True, "strikethrough": False})
+        elif t.startswith("~~"):
+            tokens.append({"text": t[2:-2], "bold": False, "italic": False, "strikethrough": True})
+        last = m.end()
+    if last < len(text):
+        tokens.append({"text": text[last:], "bold": False, "italic": False, "strikethrough": False})
     return tokens
 
 def select_font(token, fonts):
@@ -42,7 +58,7 @@ def select_font(token, fonts):
         return fonts.get("italic", fonts["normal"])
     return fonts["normal"]
 
-def custom_textlength(draw, text, font, emoji_adjustment_factor=1.5):
+def custom_textlength(draw, text, font, emoji_factor=1.5):
     total = 0
     emoji_re = re.compile(
         "[" 
@@ -55,25 +71,26 @@ def custom_textlength(draw, text, font, emoji_adjustment_factor=1.5):
     )
     for ch in text:
         if emoji_re.match(ch):
-            total += font.getmask(ch).size[0] * emoji_adjustment_factor
+            total += font.getmask(ch).size[0] * emoji_factor
         else:
             bb = draw.textbbox((0,0), ch, font=font)
             total += (bb[2] - bb[0]) if bb else 0
     return total
 
 def wrap_tokens(tokens, draw, fonts, max_width):
-    lines, line, width = [], [], 0
+    lines, line, w_acc = [], [], 0
     for token in tokens:
-        for i, word in enumerate(token["text"].split(" ")):
-            wtext = word + (" " if i < len(token["text"].split(" ")) - 1 else "")
-            tkn = {**token, "text": wtext}
-            fnt = select_font(tkn, fonts)
-            w = custom_textlength(draw, wtext, fnt)
-            if line and width + w > max_width:
+        words = token["text"].split(" ")
+        for i, w in enumerate(words):
+            txt = w + (" " if i < len(words)-1 else "")
+            tk = {**token, "text": txt}
+            f = select_font(tk, fonts)
+            w_len = custom_textlength(draw, txt, f)
+            if line and w_acc + w_len > max_width:
                 lines.append(line)
-                line, width = [], 0
-            line.append(tkn)
-            width += w
+                line, w_acc = [], 0
+            line.append(tk)
+            w_acc += w_len
     if line:
         lines.append(line)
     return lines
@@ -82,12 +99,12 @@ def draw_markdown_lines(draw, pilmoji, lines, x0, y0, spacing, fill, fonts):
     y = y0
     for line in lines:
         x, max_h = x0, 0
-        for token in line:
-            fnt = select_font(token, fonts)
-            pilmoji.text((x, y), token["text"], font=fnt, fill=fill)
-            bb = draw.textbbox((0,0), token["text"], font=fnt)
+        for tk in line:
+            f = select_font(tk, fonts)
+            pilmoji.text((x, y), tk["text"], font=f, fill=fill)
+            bb = draw.textbbox((0,0), tk["text"], font=f)
             w, h = bb[2]-bb[0], bb[3]-bb[1]
-            if token.get("strikethrough"):
+            if tk.get("strikethrough"):
                 draw.line((x, y + h/2, x + w, y + h/2), fill=fill, width=1)
             x += w
             max_h = max(max_h, h)
@@ -95,102 +112,55 @@ def draw_markdown_lines(draw, pilmoji, lines, x0, y0, spacing, fill, fonts):
     return y - y0
 
 def extract_first_url(text):
-    match = re.search(r'https?://\S+', text)
-    return None
-    return match.group(0) if match else None
+    m = re.search(r'https?://\S+', text)
+    return m.group(0) if m else None
 
-# === Fix here: cast to int to avoid float offsets ===
-def draw_reactions(
-    draw,
-    pilmoji,
-    reactions,
-    x,
-    y,
-    emoji_font,
-    count_font=None,
-    *,
-    # Discord‑style defaults:
-    bg_color="#282d51",          # pill background
-    outline_color="#393f88",     # pill border
-    text_color="#DCDFE4",        # emoji & count
-    radius=12,                   # pill corner radius
-    inner_pad_x=12,               # horizontal padding inside pill
-    inner_pad_y=8,               # vertical padding inside pill
-    item_spacing=6,              # spacing between pills
-    icon_spacing=15              # spacing between emoji & count
-):
-    """
-    Draws Discord‑style reaction pills with better padding & colors.
-    Returns the baseline y + height of tallest pill.
-    """
-    if count_font is None:
-        count_font = emoji_font
-
+def draw_reactions(draw, pilmoji, reactions, x, y, emoji_font, count_font=None,
+                   bg="#282d51", outline="#393f88", txtcol="#DCDFE4",
+                   rad=12, pad_x=12, pad_y=8, spacing=6, icon_sp=15):
+    cf = count_font or emoji_font
     max_h = 0
-    for reaction in reactions:
-        emoji = reaction["emoji"]
-        count_text = str(reaction["count"])
-
-        # Measure emoji & count
-        eb = draw.textbbox((0,0), emoji, font=emoji_font)
-        cb = draw.textbbox((0,0), count_text, font=count_font)
+    for r in reactions:
+        e, cnt = r["emoji"], str(r["count"])
+        eb = draw.textbbox((0,0), e, font=emoji_font)
+        cb = draw.textbbox((0,0), cnt, font=cf)
         ew, eh = eb[2]-eb[0], eb[3]-eb[1]
         cw, ch = cb[2]-cb[0], cb[3]-cb[1]
-
-        # Pill dimensions
-        pill_w = inner_pad_x*2 + ew + icon_spacing + cw
-        pill_h = inner_pad_y*2 + max(eh, ch)
-
-        # Draw background pill
-        rect = [x, y, x + pill_w, y + pill_h]
-        draw.rounded_rectangle(rect, radius=radius, fill=bg_color, outline=outline_color)
-
-        # Center emoji vertically
-        ey = y + (pill_h - eh) // 3.5
-        px = x + inner_pad_x
-        pilmoji.text((px, int(ey)), emoji, font=emoji_font, fill=text_color)
-
-        # Draw count next, centered
-        px += ew + icon_spacing
-        cy = y + (pill_h - ch) // 3
-        draw.text((px, cy), count_text, font=count_font, fill=text_color)
-
-        # Advance
-        x += pill_w + item_spacing
-        max_h = max(max_h, pill_h)
-
+        w_pill = pad_x*2 + ew + icon_sp + cw
+        h_pill = pad_y*2 + max(eh, ch)
+        rect = [x, y, x+w_pill, y+h_pill]
+        draw.rounded_rectangle(rect, radius=rad, fill=bg, outline=outline)
+        ey = y + (h_pill - eh)//3.5
+        pilmoji.text((x+pad_x, int(ey)), e, font=emoji_font, fill=txtcol)
+        nx = x+pad_x+ew+icon_sp
+        cy = y + (h_pill - ch)//3
+        draw.text((nx, cy), cnt, font=cf, fill=txtcol)
+        x += w_pill + spacing
+        max_h = max(max_h, h_pill)
     return y + max_h
 
 def draw_link_preview(draw, x, y, width, url, font):
-    padding = 10
-    height = 40
-    box_color = "#f2f3f5"
-    text_color = "#0066cc"
-    draw.rounded_rectangle((x, y, x + width, y + height), radius=6, fill=box_color)
-    draw.text((x + padding, y + 10), url, font=font, fill=text_color)
-    return height + 6
+    pad, h = 10, 40
+    draw.rounded_rectangle((x, y, x+width, y+h), radius=6, fill="#f2f3f5")
+    draw.text((x+pad, y+10), url, font=font, fill="#0066cc")
+    return h + 6
 
-def load_json(path):
-    try:
-        with open(path, 'r') as f:
-            return json.load(f)
-    except Exception as e:
-        logging.error(f"Failed loading {path}: {e}")
-    return {}
-
+# -----------------------------------------------------------------------------
+# Profile / Avatar
+# -----------------------------------------------------------------------------
 def generate_text_profile(name, bg, fg, size, font_path, r=0.2):
     H = size * 4
     img = Image.new('RGBA', (H, H), bg)
-    draw = ImageDraw.Draw(img)
-    draw.rounded_rectangle((0,0,H,H), int(H*r), fill=bg)
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((0,0,H,H), int(H*r), fill=bg)
     initials = name[:2].upper()
     try:
         fnt = ImageFont.truetype(font_path, H//2)
     except IOError:
         fnt = ImageFont.load_default()
-    bb = draw.textbbox((0,0), initials, font=fnt)
+    bb = d.textbbox((0,0), initials, font=fnt)
     w, h = bb[2]-bb[0], bb[3]-bb[1]
-    draw.text(((H-w)/2,(H-h)/2), initials, font=fnt, fill=fg)
+    d.text(((H-w)//2, (H-h)//2), initials, font=fnt, fill=fg)
     return img.resize((size,size), Image.LANCZOS)
 
 def generate_avatar(path, size):
@@ -205,6 +175,9 @@ def generate_avatar(path, size):
     im.putalpha(mask)
     return im.resize((size,size), Image.LANCZOS)
 
+# -----------------------------------------------------------------------------
+# Block Generators
+# -----------------------------------------------------------------------------
 def merge_config(role, cfg):
     default = cfg.get('default', {})
     role_cfg = cfg.get(role, {})
@@ -216,78 +189,72 @@ def merge_config(role, cfg):
     return merged
 
 def generate_message_block(messages, role, idx, cfg):
-    full_text = "\n".join(m['text'] for m in messages)
-    full_text = re.sub(r'\[SFX:[^\]]+\]', '', full_text)
-
-    c = merge_config(role, cfg)
-    bg, fg = c['background_color'], c['text_color']
+    c    = merge_config(role, cfg)
+    bg   = c['background_color']
+    fg   = c['text_color']
     uname_col = c['username_color']
+    W    = c['block_width']
+    av   = c['profile_size']
+    px, py = c['horizontal_padding'], c['vertical_padding']
+    gap, ls = c['profile_gap'], c['line_spacing']
 
     now = datetime.now()
     first = messages[0]
-    ts_str = now.strftime("Today at %-I:%M %p")
+    ts = now.strftime("Today at %-I:%M %p")
     if 'timestamp' in first:
         try:
             dt = datetime.fromisoformat(first['timestamp'])
-            if dt.date() == now.date():
-                ts_str = dt.strftime("Today at %-I:%M %p")
-            else:
-                ts_str = dt.strftime("%b %d, %Y at %-I:%M %p")
-        except ValueError:
+            ts = dt.strftime("Today at %-I:%M %p") if dt.date()==now.date() else dt.strftime("%b %d, %Y at %-I:%M %p")
+        except:
             pass
     if first.get('edited', False):
-        ts_str += " (edited)"
+        ts += " (edited)"
 
     fp, bfp = c['font_path'], c.get('bold_font_path', c['font_path'])
     sz = c.get('font_size', 24)
     try:
-        font = ImageFont.truetype(fp, sz)
-        bold = ImageFont.truetype(bfp, sz)
-        ts_font = ImageFont.truetype(fp, sz-6)
+        font       = ImageFont.truetype(fp, sz)
+        bold       = ImageFont.truetype(bfp, sz)
+        ts_font    = ImageFont.truetype(fp, sz-6)
         emoji_font = ImageFont.truetype(fp, sz-6)
     except IOError:
         font = bold = ts_font = emoji_font = ImageFont.load_default()
 
-    W = c['block_width']
-    av = c['profile_size']
-    px, py = c['horizontal_padding'], c['vertical_padding']
-    gap, ls = c['profile_gap'], c['line_spacing']
-
-    dummy = Image.new('RGB', (W,100), bg)
+    dummy = Image.new('RGB', (W,1000), bg)
     dd = ImageDraw.Draw(dummy)
-    tokens = parse_markdown(full_text)
     max_w = W - (px*2 + av + gap)
-    lines = wrap_tokens(tokens, dd, {
-        'normal': font, 'bold': bold,
-        'italic': font, 'bold_italic': bold
-    }, max_w)
+    all_lines = []
+    for seg in messages:
+        text = re.sub(r'\[SFX:[^\]]+\]', '', seg['text'])
+        tokens = parse_markdown(text)
+        lines = wrap_tokens(tokens, dd, {'normal': font, 'bold': bold, 'italic': font, 'bold_italic': bold}, max_w)
+        all_lines.extend(lines)
 
     name_h = bold.getbbox("Ag")[3]
-    text_height = len(lines) * (name_h + ls)
-    link = extract_first_url(full_text)
-    link_preview_h = 50 if link else 0
-    reactions = first.get("reactions", [])
-    reaction_h = 30 if reactions else 0
-    total_extra = link_preview_h + reaction_h
-    H = max(av + 2*py, name_h + text_height + total_extra + 2*py)
+    text_h = len(all_lines) * (name_h + ls)
+    link = extract_first_url("\n".join(m['text'] for m in messages))
+    link_h = 50 if link else 0
+    reactions = first.get('reactions', [])
+    react_h = 30 if reactions else 0
+    H = max(av + 2*py, name_h + text_h + link_h + react_h + 2*py)
 
     img = Image.new('RGBA', (W, int(H)), (0,0,0,0))
-    dr = ImageDraw.Draw(img)
+    dr  = ImageDraw.Draw(img)
     dr.rounded_rectangle((0,0,W,H), radius=8, fill=bg)
 
     if c.get('profile_image_path') and os.path.exists(c['profile_image_path']):
         try:
             av_img = generate_avatar(c['profile_image_path'], av)
-        except Exception:
-            av_img = generate_text_profile(c.get('profile_name','?'), "#7289da", "#ffffff", av, fp)
+        except:
+            av_img = generate_text_profile(c.get('profile_name','?'), "#7289da", "#fff", av, fp)
     else:
-        av_img = generate_text_profile(c.get('profile_name','?'), "#7289da", "#ffffff", av, fp)
+        av_img = generate_text_profile(c.get('profile_name','?'), "#7289da", "#fff", av, fp)
 
-    HR = av * 4
+    HR = av*4
     border = Image.new('RGBA', (HR,HR), (0,0,0,0))
     bdr = ImageDraw.Draw(border)
     bw = max(2, HR//40)
-    bdr.ellipse((0,0,HR,HR), fill='#ffffff')
+    bdr.ellipse((0,0,HR,HR), fill='#fff')
     mask = Image.new('L', (HR,HR), 0)
     ImageDraw.Draw(mask).ellipse((bw,bw,HR-bw,HR-bw), fill=255)
     border.paste(av_img.resize((HR,HR), Image.LANCZOS), (0,0), mask)
@@ -296,34 +263,63 @@ def generate_message_block(messages, role, idx, cfg):
 
     x0, y0 = px + av + gap, py
     dr.text((x0, y0), c.get('profile_name','?'), font=bold, fill=uname_col)
-    name_w = dr.textlength(c.get('profile_name','?'), font=bold)
-    dr.text((x0 + name_w + 8, y0 + 2), ts_str, font=ts_font, fill="gray")
+    n_w = dr.textlength(c.get('profile_name','?'), font=bold)
+    dr.text((x0 + n_w + 8, y0 + 2), ts, font=ts_font, fill="gray")
 
-    with Pilmoji(img, source=GoogleEmojiSource) as p:
-        y_msg = y0 + name_h + 4
-        draw_markdown_lines(dr, p, lines, x0, y_msg, ls, fg, {
-            'normal': font, 'bold': bold,
-            'italic': font, 'bold_italic': bold
-        })
-
-        y_offset = y_msg + text_height
-
+    with Pilmoji(img, source=GoogleEmojiSource) as pilmoji:
+        y_text = y0 + name_h + 4
+        draw_markdown_lines(dr, pilmoji, all_lines, x0, y_text, ls, fg, {'normal': font, 'bold': bold, 'italic': font, 'bold_italic': bold})
+        y_off = y_text + text_h
         if link:
-            y_offset += draw_link_preview(dr, x0, y_offset, max_w, link, font)
-
+            y_off += draw_link_preview(dr, x0, y_off, max_w, link, font)
         if reactions:
-            y_offset += draw_reactions(dr, p, reactions, x0, y_offset, emoji_font)
+            y_off += draw_reactions(dr, pilmoji, reactions, x0, y_off, emoji_font)
 
     os.makedirs('video', exist_ok=True)
-    out = os.path.join('video', f'message_{idx}_{role}.png')
-    try:
-        img.save(out)
-        logging.info(f"Saved: {out}")
-    except Exception as e:
-        logging.error(f"Error saving image: {e}")
+    base_name = f"message_{idx}_{role}_{0}.png"
+    out = os.path.join('video', base_name)
 
+    suffix = 1
+    while os.path.exists(out):
+        out = os.path.join('video', f"message_{idx}_{role}_{suffix}.png")
+        suffix += 1
+
+    img.save(out)
+    logging.info(f"Saved: {out}")
     return img
 
+def generate_join_or_leave_message(name, time, template, arrow_x, arrow_img, color, cfg):
+    jc = cfg.get("join_leave", {})
+    W  = jc.get("world_width", 900)
+    H  = jc.get("world_height", 100)
+    bg = cfg["default"].get("background_color", "#36393F")
+    fnt_size = cfg["default"].get("font_size", 24)
+    msg_f  = ImageFont.truetype(cfg["default"]["font_path"], fnt_size)
+    name_f = ImageFont.truetype(cfg["default"].get("bold_font_path", cfg["default"]["font_path"]), fnt_size)
+    time_f = ImageFont.truetype(cfg["default"]["font_path"], fnt_size-6)
+    before, after = template.split("CHARACTER")
+    time_str = f"Today at {time} PM"
+    img = Image.new('RGBA', (W, H), bg)
+    dr  = ImageDraw.Draw(img)
+    arr = Image.open(arrow_img).convert('RGBA')
+    arr.thumbnail((40,40), Image.LANCZOS)
+    ascent,_ = msg_f.getmetrics()
+    txt_h = msg_f.getbbox("Ag")[3] - msg_f.getbbox("Ag")[1]
+    y0 = (H - txt_h)//2
+    ay = y0 + (ascent - arr.height)//2
+    img.paste(arr, (arrow_x, ay), arr)
+    x0 = arrow_x + arr.width + 60
+    with Pilmoji(img, source=GoogleEmojiSource) as pilmoji:
+        pilmoji.text((x0, y0), before, cfg["default"].get("joined_font_color", "#e0e0e0"), font=msg_f)
+        nx = x0 + msg_f.getbbox(before)[2]
+        pilmoji.text((nx, y0), name, color, font=name_f)
+        pilmoji.text((nx + name_f.getbbox(name)[2], y0), after, cfg["default"].get("joined_font_color", "#e0e0e0"), font=msg_f)
+        dr.text((nx + msg_f.getbbox(before+name+after)[2] + 30, y0), time_str, font=time_f, fill=cfg["default"].get("time_font_color", "#888"))
+    return img
+
+# -----------------------------------------------------------------------------
+# Main
+# -----------------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description="Generate Discord‑style chat images.")
     parser.add_argument('--conversation', default='utils/conversation.json')
@@ -333,19 +329,72 @@ def main():
     conv = load_json(args.conversation)
     cfg  = load_json(args.config)
     if not conv or not cfg:
-        return
+        sys.exit(1)
 
-    idx, prev = 1, None
-    acc = []
+    jc      = cfg.get("join_leave", {})
+    arrow_x = jc.get("arrow_x", 40)
+    g_arr   = os.path.join("assets", "arrow_join.png")
+    l_arr   = os.path.join("assets", "arrow_leave.png")
 
+    idx = 1
     for entry in conv.get('conversation', []):
-        role = entry.get('role')
-        for msg in entry.get('messages', []):
-            if prev and role != prev:
-                acc = []
-            acc.append(msg)
-            prev = role
-            generate_message_block(acc, role, idx, cfg)
+        role     = entry.get('role')
+        messages = entry.get('messages', [])
+
+        # System join/leave
+        if role == "system":
+            for msg in messages:
+                ts = msg.get('timestamp')
+                try:
+                    tstr = datetime.fromisoformat(ts).strftime("%-I:%M")
+                except:
+                    tstr = "00:00"
+                txt = msg.get('text', '')
+                if 'joined' in txt.lower():
+                    img = generate_join_or_leave_message(txt.split(' joined')[0], tstr,
+                        "CHARACTER joined the server", arrow_x, g_arr,
+                        cfg['default']['role_colors'].get('user','#fff'), cfg)
+                elif 'left' in txt.lower():
+                    img = generate_join_or_leave_message(txt.split(' left')[0], tstr,
+                        "CHARACTER left the server", arrow_x, l_arr,
+                        cfg['default']['role_colors'].get('user','#fff'), cfg)
+                else:
+                    continue
+                os.makedirs('video', exist_ok=True)
+                img.save(os.path.join('video', f"message_{idx}_system.png"))
+                logging.info(f"Saved join/leave #{idx}")
+                idx += 1
+            continue
+
+        # Prefix-only images (no reactions) for each segment before the last
+        for count in range(1, len(messages)):
+            subset = copy.deepcopy(messages[:count])
+            if 'timestamp' in entry:
+                subset[0]['timestamp'] = entry['timestamp']
+            if 'edited' in entry:
+                subset[0]['edited']    = entry['edited']
+            subset[0].pop('reactions', None)
+            generate_message_block(subset, role, idx, cfg)
+            idx += 1
+
+        # Full-message + reaction events
+        full = copy.deepcopy(messages)
+        if 'timestamp' in entry:
+            full[0]['timestamp'] = entry['timestamp']
+        if 'edited' in entry:
+            full[0]['edited']    = entry['edited']
+
+        state = {}
+        reaction_events = entry.get('reactions', [])
+        if reaction_events:
+            for ev in reaction_events:
+                state[ev['emoji']] = ev['count']
+                full[0]['reactions'] = [{"emoji": e, "count": state[e]} for e in state]
+                generate_message_block(full, role, idx, cfg)
+            idx += 1
+        else:
+            full[0].pop('reactions', None)
+            generate_message_block(full, role, idx, cfg)
             idx += 1
 
 if __name__ == '__main__':

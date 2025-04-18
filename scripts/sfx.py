@@ -11,8 +11,7 @@ from moviepy.editor import (
     ImageClip, 
     concatenate_videoclips, 
     AudioFileClip, 
-    CompositeAudioClip,
-    concatenate_audioclips
+    CompositeAudioClip
 )
 from kokoro import KPipeline
 import soundfile as sf
@@ -143,49 +142,78 @@ def create_sfx_video(flat_list, output_video=OUTPUT_VIDEO):
 
     clips = []
     for item in flat_list:
-        image_file = os.path.join(VIDEO_DIR, f"message_{item['index']}_{item['role']}.png")
-        if not os.path.exists(image_file):
-            logging.warning(f"Missing image: {image_file}")
-            continue
-        clip = ImageClip(image_file).set_duration(item['duration'])
-        audio_components = []
-        if item['main_audio']:
-            audio_components.append(item['main_audio'])
-        for sfx in item['sfx_events']:
-            sfx_path = os.path.join("sfx", sfx['file'])
-            if os.path.exists(sfx_path):
-                try:
-                    sfx_clip = AudioFileClip(sfx_path)
-                    sfx_clip = sfx_clip.volumex(sfx['volume']).set_start(sfx['start'])
-                    audio_components.append(sfx_clip)
-                except Exception as e:
-                    logging.error(f"Error loading SFX {sfx_path}: {e}")
-        if audio_components:
-            clip = clip.set_audio(CompositeAudioClip(audio_components))
-        clips.append(clip)
+        base = os.path.join(VIDEO_DIR, f"message_{item['index']}_{item['role']}")
+        # 1) Gather the list of ImageClips for this message
+        if item['role'] == "system":
+            img = base + ".png"
+            if not os.path.exists(img):
+                logging.warning(f"Missing image file: {img}")
+                continue
+            image_clips = [ImageClip(img).set_duration(item['duration'])]
+        else:
+            image_clips = []
+            i = 0
+            while True:
+                img = base + f"_{i}.png"
+                if os.path.exists(img):
+                    image_clips.append(ImageClip(img).set_duration(item['duration']))
+                    i += 1
+                else:
+                    break
+            if not image_clips:
+                logging.warning(f"Missing image file(s) for: {base}_[0...].png")
+                continue
 
-    if clips:
-        video = concatenate_videoclips(clips, method="compose")
-        if background_music_path and os.path.exists(background_music_path):
-            try:
-                bg_music = AudioFileClip(background_music_path).volumex(0.3).set_duration(video.duration)
-                final_audio = CompositeAudioClip([video.audio, bg_music]) if video.audio else bg_music
-                video = video.set_audio(final_audio)
-            except Exception as e:
-                logging.warning(f"Failed to apply background music: {e}")
-        try:
-            video.write_videofile(
-                output_video,
-                fps=24,
-                codec="libx264",
-                audio_codec="aac",
-                threads=4
-            )
-            logging.info(f"Successfully created {output_video}")
-        except Exception as e:
-            logging.error(f"Video render failed: {e}")
-    else:
+        # 2) Attach audio only to the *first* clip of this message
+        first = True
+        for clip in image_clips:
+            if first:
+                audio_components = []
+                if item['main_audio']:
+                    audio_components.append(item['main_audio'])
+                for sfx in item['sfx_events']:
+                    sfx_path = os.path.join("sfx", sfx['file'])
+                    if os.path.exists(sfx_path):
+                        try:
+                            sfx_clip = AudioFileClip(sfx_path)\
+                                .volumex(sfx['volume'])\
+                                .set_start(sfx['start'])
+                            audio_components.append(sfx_clip)
+                        except Exception as e:
+                            logging.error(f"Error loading SFX {sfx_path}: {e}")
+                if audio_components:
+                    clip = clip.set_audio(CompositeAudioClip(audio_components))
+                first = False
+
+            clips.append(clip)
+
+    # 3) Build final video + optional background music
+    if not clips:
         logging.error("No valid clips to render")
+        return
+
+    video = concatenate_videoclips(clips, method="compose")
+    if background_music_path and os.path.exists(background_music_path):
+        try:
+            bg = AudioFileClip(background_music_path)\
+                .volumex(0.3)\
+                .set_duration(video.duration)
+            final_audio = CompositeAudioClip([video.audio, bg]) if video.audio else bg
+            video = video.set_audio(final_audio)
+        except Exception as e:
+            logging.warning(f"Failed to apply background music: {e}")
+
+    try:
+        video.write_videofile(
+            output_video,
+            fps=24,
+            codec="libx264",
+            audio_codec="aac",
+            threads=4
+        )
+        logging.info(f"Successfully created {output_video}")
+    except Exception as e:
+        logging.error(f"Video render failed: {e}")
 
 def main():
     parser = argparse.ArgumentParser(description="Create final video with SFX")
