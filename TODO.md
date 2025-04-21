@@ -1,2 +1,2 @@
-- SFX for reactions
-- SFX as {} for text
+- voice messages
+- duration between sfx

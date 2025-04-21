@@ -17,7 +17,7 @@
         ]
     },
     {
-      "role": "[role]",
+      "role": "user[ |1|2|3|4|5|6|7|8]",
       "timestamp": "yyyy-mm-ddThh:mm:ss+01:00",
       "edited": [true|false],
       "reactions": [
