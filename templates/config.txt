@@ -1,35 +1,79 @@
 {
-  "base": {
-    "background_color": "#343541",
-    "bubble_color": "#444654",
+  "default": {
+    "background_color": "#36393F",
     "text_color": "#e0e0e0",
+    "username_color": "#ffffff",
     "font_path": "fonts/medium.ttf",
+    "bold_font_path": "fonts/bold.ttf",
+    "italic_font_path": "fonts/medium_italic.ttf",
+    "bold_italic_font_path": "fonts/bold_italic.ttf",
     "font_size": 24,
-    "block_width": 1200,
+    "block_width": 900,
     "vertical_padding": 20,
     "horizontal_padding": 20,
     "line_spacing": 8,
     "profile_size": 80,
     "profile_gap": 20,
-    "profile_bg": "#4e4e6e",
-    "profile_text_color": "#ffffff",
-    "feedback_padding_top": 10,
-    "feedback_padding_bottom": 16
+    "voice_model": "af_heart",
+    "background_music_path": "sfx/background.mp3",
+    "role_colors": {
+      "user": "#7289DA",
+      "user1": "#0099ff",
+      "user2": "#ffaa00"
+    }
+  },
+  "join_leave": {
+    "world_width": 900,
+    "world_height": 100,
+    "arrow_x": 40,
+    "joined_font_color": "#e0e0e0",
+    "time_font_color": "#888",
+    "arrow_join_path": "assets/green_arrow.png",
+    "arrow_leave_path": "assets/red_arrow.png"
   },
   "user": {
-    "profile_image_path": null,
-    "profile_name": "User"
+    "profile_image_path": "profiles/bingus.jpg",
+    "profile_name": "Bingus",
+    "voice_model": "jf_alpha"
   },
   "user1": {
     "profile_image_path": "profiles/ChatGPT_logo.png",
-    "profile_name": "ChatGPT"
+    "profile_name": "ChatGPT",
+    "voice_model": "am_michael"
   },
   "user2": {
     "profile_image_path": "profiles/cryptobro.jpeg",
-    "profile_name": "Crypto Bro"
+    "profile_name": "Crypto Bro",
+    "voice_model": "am_echo"
   },
   "user3": {
     "profile_image_path": "profiles/x.jpg",
-    "profile_name": "Time Traveler"
+    "profile_name": "Time Traveler",
+    "voice_model": "am_fenrir"
+  },
+  "user4": {
+    "profile_image_path": "profiles/ceo_bot.png",
+    "profile_name": "CEO Bot",
+    "voice_model": "bm_george"
+  },
+  "user5": {
+    "profile_image_path": "profiles/lawyer_waifu.png",
+    "profile_name": "Lawyer Waifu",
+    "voice_model": "bf_emma"
+  },
+  "user6": {
+    "profile_image_path": "profiles/troll_ai.png",
+    "profile_name": "Troll AI",
+    "voice_model": "am_puck"
+  },
+  "user7": {
+    "profile_image_path": "profiles/philosophy_bot.png",
+    "profile_name": "Philosophy Bot",
+    "voice_model": "af_nicole"
+  },
+  "user8": {
+    "profile_image_path": "profiles/meme_lord.png",
+    "profile_name": "Meme Lord",
+    "voice_model": "af_sky"
   }
 }

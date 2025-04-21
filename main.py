@@ -16,7 +16,7 @@ MENU_OPTIONS = [
 COMMAND_MAPPING = {
     0: ["python", "scripts/generate_image.py"],
     1: ["python", "scripts/create_video.py"],
-    2: ["python", "scripts/sfx.py", "--cleanup"],
+    2: ["python", "scripts/sfx.py"],
 }
 
 def run_command(command):

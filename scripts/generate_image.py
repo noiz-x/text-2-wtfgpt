@@ -176,7 +176,7 @@ def generate_avatar(path, size):
     return im.resize((size,size), Image.LANCZOS)
 
 # -----------------------------------------------------------------------------
-# Block Generators
+# Config Merge
 # -----------------------------------------------------------------------------
 def merge_config(role, cfg):
     default = cfg.get('default', {})
@@ -188,13 +188,16 @@ def merge_config(role, cfg):
             break
     return merged
 
-def generate_message_block(messages, role, idx, cfg):
-    c    = merge_config(role, cfg)
-    bg   = c['background_color']
-    fg   = c['text_color']
+# -----------------------------------------------------------------------------
+# Message Block (no saving!)
+# -----------------------------------------------------------------------------
+def generate_message_block(messages, role, cfg):
+    c     = merge_config(role, cfg)
+    bg    = c['background_color']
+    fg    = c['text_color']
     uname_col = c['username_color']
-    W    = c['block_width']
-    av   = c['profile_size']
+    W     = c['block_width']
+    av    = c['profile_size']
     px, py = c['horizontal_padding'], c['vertical_padding']
     gap, ls = c['profile_gap'], c['line_spacing']
 
@@ -213,9 +216,9 @@ def generate_message_block(messages, role, idx, cfg):
     fp, bfp = c['font_path'], c.get('bold_font_path', c['font_path'])
     sz = c.get('font_size', 24)
     try:
-        font       = ImageFont.truetype(fp, sz)
-        bold       = ImageFont.truetype(bfp, sz)
-        ts_font    = ImageFont.truetype(fp, sz-6)
+        font    = ImageFont.truetype(fp, sz)
+        bold    = ImageFont.truetype(bfp, sz)
+        ts_font = ImageFont.truetype(fp, sz-6)
         emoji_font = ImageFont.truetype(fp, sz-6)
     except IOError:
         font = bold = ts_font = emoji_font = ImageFont.load_default()
@@ -268,26 +271,19 @@ def generate_message_block(messages, role, idx, cfg):
 
     with Pilmoji(img, source=GoogleEmojiSource) as pilmoji:
         y_text = y0 + name_h + 4
-        draw_markdown_lines(dr, pilmoji, all_lines, x0, y_text, ls, fg, {'normal': font, 'bold': bold, 'italic': font, 'bold_italic': bold})
+        draw_markdown_lines(dr, pilmoji, all_lines, x0, y_text, ls, fg, 
+                            {'normal': font, 'bold': bold, 'italic': font, 'bold_italic': bold})
         y_off = y_text + text_h
         if link:
             y_off += draw_link_preview(dr, x0, y_off, max_w, link, font)
         if reactions:
             y_off += draw_reactions(dr, pilmoji, reactions, x0, y_off, emoji_font)
 
-    os.makedirs('video', exist_ok=True)
-    base_name = f"message_{idx}_{role}_{0}.png"
-    out = os.path.join('video', base_name)
-
-    suffix = 1
-    while os.path.exists(out):
-        out = os.path.join('video', f"message_{idx}_{role}_{suffix}.png")
-        suffix += 1
-
-    img.save(out)
-    logging.info(f"Saved: {out}")
     return img
 
+# -----------------------------------------------------------------------------
+# Join/Leave Block
+# -----------------------------------------------------------------------------
 def generate_join_or_leave_message(name, time, template, arrow_x, arrow_img, color, cfg):
     jc = cfg.get("join_leave", {})
     W  = jc.get("world_width", 900)
@@ -318,6 +314,75 @@ def generate_join_or_leave_message(name, time, template, arrow_x, arrow_img, col
     return img
 
 # -----------------------------------------------------------------------------
+# Sequencing Generators
+# -----------------------------------------------------------------------------
+def iter_system_images(entry, cfg):
+    jc      = cfg.get("join_leave", {})
+    arrow_x = jc.get("arrow_x", 40)
+    g_arr   = os.path.join("assets", "arrow_join.png")
+    l_arr   = os.path.join("assets", "arrow_leave.png")
+    for msg in entry.get('messages', []):
+        txt = msg.get('text', '')
+        ts  = msg.get('timestamp')
+        try:
+            tstr = datetime.fromisoformat(ts).strftime("%-I:%M")
+        except:
+            tstr = "00:00"
+        lower = txt.lower()
+        if 'joined' in lower:
+            name = txt.split(' joined')[0]
+            yield generate_join_or_leave_message(
+                name, tstr,
+                "CHARACTER joined the server", arrow_x, g_arr,
+                cfg['default']['role_colors'].get('user','#fff'),
+                cfg
+            )
+        elif 'left' in lower:
+            name = txt.split(' left')[0]
+            yield generate_join_or_leave_message(
+                name, tstr,
+                "CHARACTER left the server", arrow_x, l_arr,
+                cfg['default']['role_colors'].get('user','#fff'),
+                cfg
+            )
+
+def iter_message_blocks(entry, cfg):
+    role     = entry.get('role')
+    messages = entry.get('messages', [])
+
+    # typing build-up
+    for count in range(1, len(messages)):
+        subset = copy.deepcopy(messages[:count])
+        for flag in ('timestamp','edited'):
+            if flag in entry:
+                subset[0][flag] = entry[flag]
+        subset[0].pop('reactions', None)
+        yield generate_message_block(subset, role, cfg)
+
+    # full + reactions
+    full = copy.deepcopy(messages)
+    for flag in ('timestamp','edited'):
+        if flag in entry:
+            full[0][flag] = entry[flag]
+
+    state = {}
+    for ev in entry.get('reactions', []):
+        state[ev['emoji']] = ev['count']
+        full[0]['reactions'] = [{"emoji": e, "count": state[e]} for e in state]
+        yield generate_message_block(full, role, cfg)
+
+    if not entry.get('reactions'):
+        full[0].pop('reactions', None)
+        yield generate_message_block(full, role, cfg)
+
+def iter_all_images(conv, cfg):
+    for entry in conv.get('conversation', []):
+        if entry.get('role') == 'system':
+            yield from iter_system_images(entry, cfg)
+        else:
+            yield from iter_message_blocks(entry, cfg)
+
+# -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
 def main():
@@ -331,71 +396,12 @@ def main():
     if not conv or not cfg:
         sys.exit(1)
 
-    jc      = cfg.get("join_leave", {})
-    arrow_x = jc.get("arrow_x", 40)
-    g_arr   = os.path.join("assets", "arrow_join.png")
-    l_arr   = os.path.join("assets", "arrow_leave.png")
-
-    idx = 1
-    for entry in conv.get('conversation', []):
-        role     = entry.get('role')
-        messages = entry.get('messages', [])
-
-        # System join/leave
-        if role == "system":
-            for msg in messages:
-                ts = msg.get('timestamp')
-                try:
-                    tstr = datetime.fromisoformat(ts).strftime("%-I:%M")
-                except:
-                    tstr = "00:00"
-                txt = msg.get('text', '')
-                if 'joined' in txt.lower():
-                    img = generate_join_or_leave_message(txt.split(' joined')[0], tstr,
-                        "CHARACTER joined the server", arrow_x, g_arr,
-                        cfg['default']['role_colors'].get('user','#fff'), cfg)
-                elif 'left' in txt.lower():
-                    img = generate_join_or_leave_message(txt.split(' left')[0], tstr,
-                        "CHARACTER left the server", arrow_x, l_arr,
-                        cfg['default']['role_colors'].get('user','#fff'), cfg)
-                else:
-                    continue
-                os.makedirs('video', exist_ok=True)
-                img.save(os.path.join('video', f"message_{idx}_system.png"))
-                logging.info(f"Saved join/leave #{idx}")
-                idx += 1
-            continue
-
-        # Prefix-only images (no reactions) for each segment before the last
-        for count in range(1, len(messages)):
-            subset = copy.deepcopy(messages[:count])
-            if 'timestamp' in entry:
-                subset[0]['timestamp'] = entry['timestamp']
-            if 'edited' in entry:
-                subset[0]['edited']    = entry['edited']
-            subset[0].pop('reactions', None)
-            generate_message_block(subset, role, idx, cfg)
-            idx += 1
-
-        # Full-message + reaction events
-        full = copy.deepcopy(messages)
-        if 'timestamp' in entry:
-            full[0]['timestamp'] = entry['timestamp']
-        if 'edited' in entry:
-            full[0]['edited']    = entry['edited']
-
-        state = {}
-        reaction_events = entry.get('reactions', [])
-        if reaction_events:
-            for ev in reaction_events:
-                state[ev['emoji']] = ev['count']
-                full[0]['reactions'] = [{"emoji": e, "count": state[e]} for e in state]
-                generate_message_block(full, role, idx, cfg)
-            idx += 1
-        else:
-            full[0].pop('reactions', None)
-            generate_message_block(full, role, idx, cfg)
-            idx += 1
+    os.makedirs('video', exist_ok=True)
+    for idx, img in enumerate(iter_all_images(conv, cfg), start=1):
+        filename = f"{idx:04d}.png"
+        path     = os.path.join('video', filename)
+        img.save(path)
+        logging.info(f"Saved: {path}")
 
 if __name__ == '__main__':
     main()

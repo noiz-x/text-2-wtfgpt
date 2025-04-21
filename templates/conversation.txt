@@ -5,30 +5,55 @@
       "messages": [
         {
           "text": "[character] joined the server",
-          "timestamp": "yyyy-mm-ddThh:mm:ss+01:00"
+          "timestamp": "yyyy-mm-ddThh:mm:ss+01:00",
+          "sfx": [
+            {
+              "file": "[join_sound].wav",
+              "offset": 0.0,
+              "volume": 0.5
+            }
+          ]
         }
-      ]
+        ]
     },
     {
-      "role": "string",
+      "role": "[role]",
+      "timestamp": "yyyy-mm-ddThh:mm:ss+01:00",
+      "edited": [true|false],
+      "reactions": [
+        {
+          "emoji": "[emoji]",
+          "count": int,
+          "sfx": [
+            {
+              "file": "[reaction_sound].wav",
+              "offset": 0.0,
+              "volume": 1.0
+            }
+          ]
+        }
+      ],
       "messages": [
         {
-          "text": "string [SFX:filename.wav, offset, volume]",
+          "text": "message text",
           "duration": int,
-          "timestamp": "yyyy-mm-ddThh:mm:ss+01:00"
-          "edited": true,
-          "reactions": [
-            { "emoji": "📧", "count": 1 },
-            { "emoji": "👍", "count": 3 }
+          "sfx": [
+            {
+              "file": "[sound_effect].wav",
+              "offset": 0.0,
+              "volume": 1.0
+            }
           ]
         },
         {
-          "text": "string",
+          "text": "another message text",
           "duration": int,
-          "timestamp": "yyyy-mm-ddThh:mm:ss+01:00"
-          "edited": false,
-          "reactions": [
-            { "emoji": "😂", "count": 2 }
+          "sfx": [
+            {
+              "file": "[reaction_sound].wav",
+              "offset": 0.0,
+              "volume": 1.0
+            }
           ]
         }
       ]
@@ -39,6 +64,13 @@
         {
           "text": "[character] left the server",
           "timestamp": "yyyy-mm-ddThh:mm:ss+01:00"
+          "sfx": [
+            {
+              "file": "[leave_sound].wav",
+              "offset": 0.0,
+              "volume": 0.5
+            }
+          ]
         }
       ]
     }
