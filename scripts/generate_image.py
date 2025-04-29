@@ -1,3 +1,5 @@
+# scripts/generate_image.py
+
 import json
 import os
 import re
